@@ -21,7 +21,13 @@ from qd.db import abrir_almacen
 
 ETAPAS = [
     "e01_ingesta",
-    # "e02_embed", "e03_micro", "e04_narrativas", "e05_ruido", "e06_postura", "e07_origen", "e08_coord",
+    "e02_embed",
+    "e03_micro",
+    "e04_narrativas",
+    # "e05_ruido",
+    "e06_postura",
+    "e07_origen",
+    # "e08_coord",
     "e09_exporta",
 ]
 
@@ -64,10 +70,12 @@ def main(argv=None) -> int:
     ap.add_argument("--sin-llm", action="store_true")
     ap.add_argument("--embed", choices=["e5", "tfidf"], default=None)
     ap.add_argument("--no-validar", action="store_true")
+    ap.add_argument("--set", dest="sets", action="append", default=[], metavar="CLAVE=VALOR",
+                    help="pisa config.yaml, ej. --set narr.q_T=0.5 (repetible)")
     a = ap.parse_args(argv)
 
     configurar_log(a.salida)
-    cfg = qcfg.cargar(a.config)
+    cfg = qcfg.aplicar_sets(qcfg.cargar(a.config), a.sets)
     precios = qcfg.cargar(a.precios) if a.precios.exists() else {}
     work = a.work or Path("work") / a.datos.name
     work.mkdir(parents=True, exist_ok=True)

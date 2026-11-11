@@ -101,6 +101,7 @@ def correr(ctx) -> None:
     leer = lambda t: db.leer(t) if db.existe(t) else None  # noqa: E731
     ids = db.leer("ids_entrada")
     com = db.leer("com")
+    ctx.costo.comentarios = len(ids)  # también cuando e01 se salteó con --desde
 
     c = armar_comentarios(ids, leer("asig"))
     n = armar_narrativas(c, leer("narr"), com)
