@@ -1,0 +1,4 @@
+# Precios del modelo LLM en uso. Completar con el precio vigente del proveedor antes de la corrida final.
+modelo: gemini-2.5-flash-lite
+usd_por_millon_entrada: 0.0
+usd_por_millon_salida: 0.0
