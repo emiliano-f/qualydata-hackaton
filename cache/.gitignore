@@ -1,0 +1,7 @@
+# Embeddings: no se suben. Caché de LLM del set final: sí (reproducibilidad sin clave).
+*
+!.gitignore
+!llm/
+llm/*
+!llm/final/
+!llm/final/**
