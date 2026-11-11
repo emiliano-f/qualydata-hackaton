@@ -1,0 +1,59 @@
+# Hiperparámetros del pipeline. Regla: nada absoluto que dependa del tamaño del set.
+
+almacen:
+  parquet: true          # exporta com a work/<set>/parquet/comentarios/dia=N/
+  memoria_gb: null       # ej. 8 para acotar DuckDB
+  hilos: null
+
+embed:
+  motor: e5              # e5 | tfidf (plan B)
+  modelo: intfloat/multilingual-e5-small
+  prefijo: "query: "
+  max_seq_length: 96
+  batch: 256
+
+micro:
+  por_dia: 3000          # textos únicos por día en la muestra de ajuste
+  k_factor: 1.0          # k = clip(k_factor*sqrt(n_unicos)/2, k_min, k_max)
+  k_min: 80
+  k_max: 250
+  semilla: 42
+
+narr:
+  q_T: 0.60              # cuantil de la distancia al vecino más cercano entre centroides
+  delta_gris: 0.06
+  r_resp: 0.15
+
+ruido:
+  tau: 0.75
+
+resp:
+  corta: 5
+
+origen:
+  k: 1
+  m: 3
+  ventana_h: 6
+
+coord:
+  delta_s: 180
+  alfa: 0.01
+  gamma: 1.0
+  min_pub: 2
+  semilla: 42
+
+llm:
+  activo: true           # además requiere LLM_API_KEY; sin clave corre en modo sin IA
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+  modelo: gemini-2.5-flash-lite
+  paralelo: 16
+  timeout_s: 30
+  tope_tokens: 2000000
+  max_pares: 60
+  max_lote: 20000
+
+# Valores de práctica (llenar en H1). El validador avisa si el set final cae fuera de [0.5x, 2x].
+sanidad:
+  pct_ruido: null
+  n_narrativas: null
+  pct_coord: null
