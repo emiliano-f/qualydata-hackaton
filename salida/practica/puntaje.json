@@ -1,0 +1,44 @@
+{
+  "narrativas": {
+    "bcubed_precision": 1.0,
+    "bcubed_recall": 8.010351839300019e-05,
+    "bcubed_f1": 0.0001601942046665804,
+    "ruido_f1": 0.3172773547600017,
+    "postura_macro_f1": 0.3442483847636441,
+    "origen": 0.0,
+    "origen_por_narrativa": {
+      "L5": 0.0,
+      "B4": 0.0,
+      "H3": 0.0
+    },
+    "combinado": 0.11652137726906237,
+    "puntos": 3.5
+  },
+  "coordinacion": {
+    "precision": 0.0,
+    "recall": 0.0,
+    "f1": 0.0,
+    "cuentas_marcadas": 0,
+    "grupos_bcubed_f1": 0.05084745762711864,
+    "combinado": 0.015254237288135592,
+    "puntos": 0.38
+  },
+  "costo": {
+    "comentarios_procesados": 200000,
+    "segundos": 3.9,
+    "tokens_ia": 0,
+    "usd_ia": 0.0,
+    "usd_por_mil_comentarios": 0.0,
+    "hardware": "Linux x86_64, 12 núcleos, 15 GB RAM, sin GPU",
+    "almacenamiento": "DuckDB local + Parquet particionado por día",
+    "notas": "sin IA en esta corrida",
+    "desglose_segundos": {
+      "e01_ingesta": 3.6,
+      "e09_exporta": 0.34
+    },
+    "llamadas_llm": 0,
+    "aciertos_cache_llm": 0,
+    "modo_llm": "apagado",
+    "modelo_llm": "gemini-2.5-flash-lite"
+  }
+}
