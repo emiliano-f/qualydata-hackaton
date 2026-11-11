@@ -1,0 +1,108 @@
+# ==========================================
+# 1. SECRETOS Y CREDENCIALES (REGLA CRÍTICA)
+# ==========================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*credentials*.json
+*secret*
+config_local.*
+
+# ==========================================
+# 2. DATOS CRUDOS Y CACHÉ PESADA (NO SUBIR)
+# ==========================================
+data/
+datasets/
+cache/
+tmp/
+temp/
+
+# Ignorar archivos de datos e intermedios en todo el repo...
+*.csv
+*.csv.gz
+*.zip
+*.tar.gz
+*.parquet
+*.feather
+*.db
+*.sqlite
+*. sqlite3
+*.duckdb
+*.duckdb.wal
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.onnx
+*.bin
+*.pt
+*.pth
+
+# ==========================================
+# 3. EXCEPCIÓN OBLIGATORIA: CARPETA ENTREGA/
+# (El jurado evalúa estos archivos en el repo)
+# ==========================================
+!entrega/
+!entrega/comentarios.csv
+!entrega/narrativas.csv
+!entrega/cuentas.csv
+!entrega/costo.json
+!entrega/*.html
+!entrega/*.md
+
+# ==========================================
+# 4. PYTHON Y ENTORNOS VIRTUALES
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+venv/
+.venv/
+env/
+ENV/
+.conda/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ==========================================
+# 5. JUPYTER NOTEBOOKS Y LOGS
+# ==========================================
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+*.log
+logs/
+wandb/
+mlruns/
+
+# ==========================================
+# 6. SISTEMA OPERATIVO E IDEs
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
