@@ -194,6 +194,7 @@ el cálculo de embeddings en frío, porque las tres leyeron `cache/emb`.
 | `costo.json` | No (esperado) | `segundos`, `desglose_segundos` y contadores de caché cambian entre corridas. El chequeo tiene que comparar solo los 3 CSV. |
 
 **Cómo leer un fallo.** Si los CSV difieren entre dos corridas del set final en la misma máquina, primero hay que
-mirar en los dos `pipeline.log` el motor de e02 y los textos "por calcular" de e5. Si la primera corrida calculó
-embeddings y la segunda los leyó del caché, la diferencia viene de ahí. Después, comparar el `e08: ... cuentas
+mirar en los dos `pipeline.log` el motor de e02 y los textos "por calcular" de e5. En la misma máquina, calcular en
+frío y leer del caché da los mismos vectores. Si las corridas usaron cachés distintos (otra máquina o `cache/emb`
+borrado entre corridas) o una cayó a TF-IDF, la diferencia viene de ahí. Después, comparar el `e08: ... cuentas
 coordinadas en N grupos` y el número de narrativas de e04 para ubicar la etapa.
