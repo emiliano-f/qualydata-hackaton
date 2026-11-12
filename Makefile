@@ -5,14 +5,17 @@
 #   make final                   set final -> entrega/ + validación
 #   make humo                    datos de juguete de punta a punta (no necesita el set real)
 #   make test                    tests unitarios rápidos
+#   make eda                     análisis de la verdad de práctica (H1)
+#   make barrido P=narr.q_T V=0.3,0.5,0.7 [ETAPA=e04]
 #   make test-sucio              datos ensuciados a propósito (robustez)
+#   make instalar                dependencias (uv sync; sin uv, pip install -r requirements.txt)
 SET    ?= practica
 DATOS  ?= datos/$(SET)
 SALIDA ?= salida/$(SET)
-PY     ?= python
+PY     ?= $(if $(shell command -v uv 2>/dev/null),uv run python,python)
 FLAGS  ?=
 
-.PHONY: run score desde sinllm final validar humo test test-sucio limpiar
+.PHONY: run score desde sinllm final validar humo test test-sucio limpiar eda barrido instalar
 
 run:
 	$(PY) -m qd.pipeline --datos $(DATOS) --salida $(SALIDA) $(FLAGS)
@@ -43,8 +46,17 @@ test-sucio:
 	$(MAKE) run SET=sucio DATOS=work/datos/sucio SALIDA=salida/sucio FLAGS="--sin-llm $(FLAGS)"
 	$(PY) -m qd.validar --datos work/datos/sucio --entrega salida/sucio
 
+eda:
+	$(PY) herramientas/eda_verdad.py --datos $(DATOS) --salida salida/eda_verdad.md
+
+barrido:
+	$(PY) herramientas/barrido.py --datos $(DATOS) --param $(P) --valores $(V) --desde $(or $(ETAPA),e04)
+
 test:
 	$(PY) tests/test_basico.py
 
 limpiar:
 	rm -rf work/$(SET) $(SALIDA)
+
+instalar:
+	@if command -v uv >/dev/null 2>&1; then uv sync; else pip install -r requirements.txt; fi
