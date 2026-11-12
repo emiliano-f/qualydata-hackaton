@@ -116,3 +116,8 @@ mlruns/
 *.swo
 .DS_Store
 Thumbs.db
+
+# Reportes: solo el de práctica y el del set final
+reportes/*
+!reportes/practica.html
+!reportes/final.html
