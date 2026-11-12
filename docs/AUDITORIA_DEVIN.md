@@ -171,3 +171,29 @@ salen byte-idénticos con clave y sin clave (0 llamadas de red), y `costo.json` 
 O1 baja un poco la postura: 0,672 → 0,649 en práctica y 0,763 → 0,703 en p10. Pasa porque cambia el voto de cuentas
 coordinadas, y es otra muestra de R1 (orientación con mucha varianza). El total igual sube en los dos sets.
 Pendiente: O3 (TF-IDF) se descartó por decisión del equipo (se mantiene e5). El híbrido e5 + TF-IDF no se probó.
+
+## 7. Fuentes posibles de no-determinismo
+
+**Chequeo empírico (código `130e9b8`, práctica, caché de embeddings caliente).** Corrí tres veces: el `make score` del
+gate, una corrida igual y otra con `PYTHONHASHSEED=12345`, `OMP_NUM_THREADS=OPENBLAS_NUM_THREADS=MKL_NUM_THREADS=2` y
+`almacen.hilos=2` (DuckDB). Los 3 CSV salieron **byte-idénticos** en las tres (`cmp`, `/tmp/aud/det/`). Esto no cubre
+el cálculo de embeddings en frío, porque las tres leyeron `cache/emb`.
+
+| Fuente | ¿Controlada? | Dónde / por qué |
+|---|---|---|
+| Orden de filas en DuckDB | Sí, por el default de DuckDB | `db.leer` hace `SELECT *` sin `ORDER BY` (`qd/db.py:41`). DuckDB conserva el orden de inserción en scans de una tabla (`preserve_insertion_order = true` por defecto, no se cambia). Las etapas sensibles ordenan explícitamente: e02 `sort_values("h_texto")` (`e02_embed.py:73`), e08 `sort_values("ts", kind="stable")` y `lexsort` (`e08_coord.py:41, 179`), e06 `sort_values("ts", kind="stable")`. Probado con `threads=2`: idéntico. |
+| Hash de Python (`PYTHONHASHSEED`) | Sí | Los hashes de texto usan blake2b/sha1, no `hash()` (`qd/texto.py:4, 59, 63`). Los sets que se iteran en orden son de enteros o pasan por `sorted()` (`e04_narrativas.py:102, 152`, `e06_postura.py:140`, `e01_ingesta.py:88`, `e09_exporta.py:71`). Los sets de strings solo se usan para pertenencia o diferencias (`validar.py`, `e06_postura.py:234`). Probado con `PYTHONHASHSEED=12345`: idéntico. |
+| Iteración de dicts | Sí | Orden de inserción (Python ≥ 3.7), construido a partir de datos ya ordenados. |
+| Desempates sin orden estable | Sí, en la misma máquina | `sort_values("conf", ascending=False)` en e06/e07 y `argsort`/`argpartition` (`e04:132`, `e02b_ruido.py:35`) no son estables, pero son deterministas para la misma entrada y la misma versión de NumPy. |
+| Semillas | Sí | `micro.semilla` (42) en MiniBatchKMeans `random_state` y `default_rng` (`e03_micro.py:47-52`) y en TruncatedSVD del plan B (`e02_embed.py:35, 96`). `coord.semilla` en el nulo (`e08_coord.py:167`) y en Louvain (`:310`). Louvain de narrativas `seed=42` (`e04:106`). `sample(random_state=0)` en los títulos (`e04:185`). `spring_layout(seed=42)` solo en el reporte. No encontré `np.random` global ni `random` sin semilla en `qd/`. |
+| Hilos de sklearn / BLAS | Parcial | No se fija `OMP_NUM_THREADS` ni `threadpoolctl`. Con 2 hilos contra 12 dio idéntico en práctica, pero las sumas en coma flotante de BLAS y OpenMP no garantizan bits iguales entre máquinas o librerías distintas. Si falla un chequeo entre máquinas, re-correr con `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1`. |
+| Hilos de torch (e5 en frío) | Parcial | No hay `torch.set_num_threads` ni `manual_seed`. La inferencia no tiene azar (modo eval), pero el resultado puede variar en el último bit según los hilos y según el lote: solo se codifican los textos que faltan en el caché, así que el padding depende de qué otros textos caen en el mismo lote. Se mitiga porque los vectores se guardan en float16 en `cache/emb/` y la misma corrida usa los valores ya redondeados (`e02_embed.py:60-68`), así que una segunda corrida en la misma máquina lee exactamente lo que usó la primera. No probado en frío. |
+| Cambio de motor e5 → TF-IDF | No (es un respaldo) | Si el modelo de HF no carga (sin red, sin caché), e02 cae a TF-IDF con un WARNING (`e02_embed.py:91-93`) y cambia todo el agrupamiento. Buscar "e5 no disponible" en `work/<set>/pipeline.log`. |
+| Reutilización en caliente | Sí | e02 reutiliza `textos_emb` solo si coinciden el motor y los `h_texto` (`e02_embed.py:80`). `--desde eNN` reutiliza tablas de corridas previas: para el chequeo, correr siempre completo. |
+| LLM | Sí con caché, no sin él | Con `llm.activo: false` (default) no participa. Si se prende, la API no es determinista ni con temperature 0. Solo es reproducible desde `cache/llm/<set>/`. Una respuesta truncada no se cachea y una segunda corrida puede pedirla de nuevo con otro resultado. |
+| `costo.json` | No (esperado) | `segundos`, `desglose_segundos` y contadores de caché cambian entre corridas. El chequeo tiene que comparar solo los 3 CSV. |
+
+**Cómo leer un fallo.** Si los CSV difieren entre dos corridas del set final en la misma máquina, primero hay que
+mirar en los dos `pipeline.log` el motor de e02 y los textos "por calcular" de e5. Si la primera corrida calculó
+embeddings y la segunda los leyó del caché, la diferencia viene de ahí. Después, comparar el `e08: ... cuentas
+coordinadas en N grupos` y el número de narrativas de e04 para ubicar la etapa.
