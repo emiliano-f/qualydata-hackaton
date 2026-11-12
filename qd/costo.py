@@ -5,12 +5,16 @@ import importlib.util
 import json
 import os
 import platform
-import resource
 import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, Optional
+
+try:
+    import resource  # solo Unix; en Windows ram_pico_gb queda en null
+except ImportError:  # pragma: no cover
+    resource = None
 
 
 def _ram_gb() -> Optional[int]:
@@ -47,8 +51,10 @@ def describir_hardware() -> str:
     return ", ".join(partes)
 
 
-def _ram_pico_gb() -> float:
+def _ram_pico_gb():
     """Pico de RSS del proceso: ru_maxrss viene en KB en Linux y en bytes en macOS."""
+    if resource is None:
+        return None
     pico = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return round(pico / 1e9, 2) if sys.platform == "darwin" else round(pico / 1e6, 2)
 
