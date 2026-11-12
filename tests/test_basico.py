@@ -160,7 +160,7 @@ def test_llm_cache_y_modo():
         llm = LLM(cfg, c, "set")
         assert llm.degradado and c.llm_usado
         prompt = "prompt de prueba"
-        h = hashlib.sha256(json.dumps(["m", SISTEMA, prompt, 200],
+        h = hashlib.sha256(json.dumps(["m", SISTEMA, prompt, 200, ""],
                                       ensure_ascii=False).encode()).hexdigest()[:32]
         (llm.cache / f"{h}.json").write_text(
             json.dumps({"texto": "OK", "uso": {"prompt_tokens": 10, "completion_tokens": 5,
@@ -191,6 +191,58 @@ def test_llm_cache_y_modo():
             os.environ["LLM_API_KEY"] = clave
         else:
             os.environ.pop("LLM_API_KEY", None)
+
+
+def test_llm_truncado_y_reasoning():
+    """R3: finish_reason=length no se cachea, no se reintenta y cuenta como falla;
+    reasoning_effort viaja en el cuerpo solo si está configurado."""
+    import logging
+    import os
+    import tempfile
+    from qd.costo import Costo
+    from qd.llm import LLM
+    clave = os.environ.get("LLM_API_KEY")
+    os.environ["LLM_API_KEY"] = "falsa"
+    avisos = []
+    h = logging.Handler()
+    h.emit = lambda r: avisos.append(r.getMessage())
+    logging.getLogger("qd").addHandler(h)
+    try:
+        cfg = {"llm": {"cache_dir": tempfile.mkdtemp(), "modelo": "m", "reintentos": 0,
+                       "reasoning_effort": "low"}}
+        c = Costo({}, "x")
+        llm = LLM(cfg, c, "set")
+        vistos = []
+
+        def _post(cuerpo):
+            vistos.append(cuerpo)
+            return {"choices": [{"message": {"content": '{"titulo": "x", "fra'}, "finish_reason": "length"}],
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 121}}
+
+        llm._post = _post
+        assert llm.chat("p truncado") is None
+        assert len(vistos) == 1                            # no reintenta el mismo prompt
+        assert vistos[0]["reasoning_effort"] == "low"      # viaja en el cuerpo
+        assert not list(llm.cache.glob("*.json"))          # no se cachea
+        assert c.fallas_llm == 1 and c.tok_out == 116      # total - prompt: se factura igual
+        assert any("truncad" in a for a in avisos)
+        llm2 = LLM({"llm": {"cache_dir": tempfile.mkdtemp(), "modelo": "m", "reintentos": 0}},
+                  Costo({}, "x"), "s")
+        vistos.clear()
+
+        def _post2(cuerpo):
+            vistos.append(cuerpo)
+            return {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}], "usage": {}}
+
+        llm2._post = _post2
+        assert llm2.chat("p") == "ok"
+        assert "reasoning_effort" not in vistos[0]         # vacío = no se manda
+    finally:
+        logging.getLogger("qd").removeHandler(h)
+        if clave is None:
+            os.environ.pop("LLM_API_KEY", None)
+        else:
+            os.environ["LLM_API_KEY"] = clave
 
 
 def test_consolidar_y_sets():

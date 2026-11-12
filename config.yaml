@@ -76,15 +76,16 @@ coord:
   min_tok_texto: 6
   semilla: 42
 
-llm:                     # API compatible con OpenAI. Requiere la variable LLM_API_KEY; sin clave, modo sin IA.
-  activo: true
+llm:                     # API compatible con OpenAI. Requiere la variable LLM_API_KEY; sin clave, modo solo-caché.
+  activo: false          # se prende solo si la API está sana (respuestas completas, sin truncadas)
   base_url: https://generativelanguage.googleapis.com/v1beta/openai/
   modelo: "gemini-3.8-flash"             # completar con el modelo del proveedor elegido
   orientar: true         # 2 llamadas por narrativa (orientación de bandos)
   titulos: true          # 1 llamada por narrativa (título y frases clave)
-  timeout_s: 60
-  reintentos: 4          # 429/503 (demanda alta) se reintentan con backoff 2, 4, 8, 16 s
-  max_fallas: 4          # fallas seguidas -> modo degradado (votos y TF-IDF)
+  timeout_s: 20
+  reintentos: 2          # 429/503 (demanda alta) se reintentan con backoff 2, 4 s
+  max_fallas: 2          # fallas seguidas -> modo degradado (votos y TF-IDF)
+  reasoning_effort: low  # baja el razonamiento oculto que comía max_tokens y truncaba las respuestas
   tope_tokens: 2000000
   cache_dir: cache/llm   # se commitea cache/llm/final/ para reproducir sin clave
 

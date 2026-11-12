@@ -68,6 +68,7 @@ class LLM:
         self.reintentos = int(obtener(cfg, "llm.reintentos", 3))
         self.max_fallas = int(obtener(cfg, "llm.max_fallas", 4))
         self.tope = int(obtener(cfg, "llm.tope_tokens", 2_000_000))
+        self.reasoning = str(obtener(cfg, "llm.reasoning_effort", "") or "")
         self.cache = Path(obtener(cfg, "llm.cache_dir", "cache/llm")) / set_nombre
         self.cache.mkdir(parents=True, exist_ok=True)
         self.fallas_seguidas = 0
@@ -97,7 +98,7 @@ class LLM:
         return ti, int(uso.get("completion_tokens", 0) or 0)
 
     def chat(self, prompt: str, max_tokens: int = 200) -> Optional[str]:
-        f = self.cache / (hashlib.sha256(json.dumps([self.modelo, SISTEMA, prompt, max_tokens],
+        f = self.cache / (hashlib.sha256(json.dumps([self.modelo, SISTEMA, prompt, max_tokens, self.reasoning],
                                                     ensure_ascii=False).encode()).hexdigest()[:32] + ".json")
         if f.exists():
             d = json.loads(f.read_text(encoding="utf-8"))
@@ -108,16 +109,28 @@ class LLM:
             return None
         cuerpo = {"model": self.modelo, "temperature": 0, "max_tokens": max_tokens,
                   "messages": [{"role": "system", "content": SISTEMA}, {"role": "user", "content": prompt}]}
+        if self.reasoning:
+            cuerpo["reasoning_effort"] = self.reasoning
         espera = 2.0
         for intento in range(self.reintentos + 1):
             try:
                 r = self._post(cuerpo)
-                texto = (r["choices"][0]["message"].get("content") or "").strip()
+                ch = r["choices"][0]
+                texto = (ch["message"].get("content") or "").strip()
                 uso = r.get("usage") or {}
                 ti, to = self._uso_tokens(uso)
                 self.tokens += ti + to
                 if self.costo:
                     self.costo.registrar_llm(ti, to, desde_cache=False)
+                if ch.get("finish_reason") == "length" or not texto:
+                    # Razonamiento oculto comió max_tokens (finish_reason=length) o vino vacía:
+                    # no se usa, no se cachea y no se reintenta el mismo prompt; cuenta como falla
+                    # pero los tokens igual se facturaron (ya registrados arriba).
+                    log.warning("LLM: respuesta truncada/vacía (finish_reason=%s); no se cachea ni se reintenta",
+                                ch.get("finish_reason"))
+                    if self.costo:
+                        self.costo.fallas_llm += 1
+                    break
                 f.write_text(json.dumps({"texto": texto, "uso": uso}, ensure_ascii=False), encoding="utf-8")
                 self.fallas_seguidas = 0
                 return texto
@@ -169,17 +182,20 @@ class LLM:
         if not texto:
             return None, ""
         m = re.search(r"RECHAZA\s*:\s*\**\s*([AB])\b", texto, re.I)
+        letra = m.group(1).upper() if m else LLM._letra(texto)
+        if letra is None:
+            log.warning("orientar: no se encontró la letra RECHAZA en %r", texto[:160])
         n = re.search(r"NARRATIVA\s*:\s*(.+)", texto, re.I)
-        return (m.group(1).upper() if m else LLM._letra(texto)), (n.group(1).strip().strip("*«»\"") if n else "")
+        return letra, (n.group(1).strip().strip("*«»\"") if n else "")
 
     def orientar(self, lado_a: List[str], lado_b: List[str]) -> Optional[float]:
         """P(lado_a rechaza): 1.0 / 0.0 si las dos posiciones coinciden, 0.5 si se contradicen, None si falla.
         Deja en self.ultima_narrativa la narrativa que escribió el modelo (sirve de título)."""
         ej = self._bloque_ejemplos()
         r1, n1 = self._rechaza(self.chat(P_ORIENTAR_V2.format(ejemplos=ej, a=self._lista(lado_a),
-                                                              b=self._lista(lado_b)), 120))
+                                                              b=self._lista(lado_b)), 1000))
         r2, n2 = self._rechaza(self.chat(P_ORIENTAR_V2.format(ejemplos=ej, a=self._lista(lado_b),
-                                                              b=self._lista(lado_a)), 120))
+                                                              b=self._lista(lado_a)), 1000))
         self.ultima_narrativa = n1 or n2
         if r1 is None or r2 is None:
             return None
@@ -187,13 +203,17 @@ class LLM:
         return sum(votos) / 2
 
     def titular(self, ejemplos: List[str]) -> Optional[dict]:
-        t = self.chat(P_TITULO.format(a=self._lista(ejemplos)), 150)
+        t = self.chat(P_TITULO.format(a=self._lista(ejemplos)), 1000)
         if not t:
             return None
         m = re.search(r"\{.*\}", t, re.S)
+        if not m:
+            log.warning("titular: respuesta sin JSON: %r", t[:160])
+            return None
         try:
-            d = json.loads(m.group(0)) if m else {}
-        except json.JSONDecodeError:
+            d = json.loads(m.group(0))
+        except json.JSONDecodeError as e:
+            log.warning("titular: JSON inválido (%s): %r", e, t[:160])
             return None
         titulo = str(d.get("titulo", "")).strip().replace("\n", " ")[:140]
         frases = [str(x).strip().replace("|", " ") for x in (d.get("frases_clave") or []) if str(x).strip()][:6]
