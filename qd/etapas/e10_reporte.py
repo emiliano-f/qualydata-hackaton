@@ -234,6 +234,10 @@ def _num(x, dec=None) -> str:
     return (f"{x:,.{dec}f}" if dec is not None else f"{x:,}").replace(",", " ").replace(".", ",").replace(" ", ".")
 
 
+def _plural(n: int, sing: str, plur: str) -> str:
+    return f"{n} {sing if n == 1 else plur}"
+
+
 def _var_color(i: int) -> str:
     return f"var(--series-{i + 1})" if i >= 0 else "var(--otras)"
 
@@ -270,20 +274,16 @@ def _tarjetas(tarjetas: list, delta_s: int) -> str:
             for e in t["empuja"])
         temprano = "".join(f'<span class="badge">temprano en {_esc(x["id"])} (emergente): '
                            f'{x["k"]} comentarios en las primeras 6 h</span> ' for x in t["temprano"])
-        tags = f'{len(t["tags"])} hashtags raros' + (f': {" ".join(_esc(x) for x in t["tags"][:3])}'
-                                                    if t["tags"] else "")
+        tags = _plural(len(t["tags"]), "hashtag raro", "hashtags raros") + (
+            f': {" ".join(_esc(x) for x in t["tags"][:3])}' if t["tags"] else "")
         out.append(f'''<div class="card">
   <div class="card-h"><b>{_esc(t["id"])}</b> · {t["n"]} cuentas{nx}</div>
-  <div class="card-b">
-    <div class="card-col">
-      <div class="fr">empuja (top 3 por % de sus comentarios)</div><ul class="emp">{empuja or "<li>-</li>"}</ul>
-      <div class="fr">evidencia</div>
-      <ul class="ev"><li>{t["posts"]} publicaciones compartidas (≥2 miembros a ≤ {delta_s} s)</li>
-      <li>{t["respuestas"]} respuestas mutuas</li><li>{tags}</li></ul>
-      {temprano}
-    </div>
-    <div id="h_{_esc(t["id"])}" class="heat"></div>
-  </div>
+  <div class="fr">empuja (top 3 por % de sus comentarios)</div><ul class="emp">{empuja or "<li>-</li>"}</ul>
+  <div id="h_{_esc(t["id"])}" class="heat"></div>
+  <div class="fr">evidencia</div>
+  <ul class="ev"><li>{_plural(t["posts"], "publicación compartida", "publicaciones compartidas")} (≥2 miembros a ≤ {delta_s} s)</li>
+  <li>{_plural(t["respuestas"], "respuesta mutua", "respuestas mutuas")}</li><li>{tags}</li></ul>
+  {temprano}
 </div>''')
     return '<div class="cards">' + "".join(out) + '</div>'
 
@@ -339,9 +339,8 @@ td {{ font-variant-numeric:tabular-nums; }}
 .cards {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:12px; margin-top:8px; }}
 .card {{ background:var(--surface-2); border:1px solid var(--borde); border-radius:10px; padding:12px 14px; }}
 .card-h {{ font-size:14px; margin-bottom:6px; }}
-.card-b {{ display:grid; grid-template-columns:1fr 170px; gap:10px; }}
 ul {{ margin:4px 0 8px; padding-left:18px; }} li {{ margin:2px 0; }}
-.heat {{ width:100%; height:130px; }}
+.heat {{ width:100%; height:90px; }}
 details summary {{ cursor:pointer; color:var(--text-muted); font-size:12px; }}
 ul.ej {{ font-style:italic; color:var(--text-secondary); }}
 </style>{plotly_js()}</head>
@@ -360,7 +359,7 @@ ul.ej {{ font-style:italic; color:var(--text-secondary); }}
 <div id="g_tiempo" class="graf"></div>
 
 <h2>3 · Quién la empuja</h2>
-<p class="nota">Una tarjeta por grupo coordinado: cuántas cuentas, cuánto más co-actúan que esas mismas cuentas al azar, qué narrativas empujan y su evidencia.</p>
+<p class="nota">Una tarjeta por grupo coordinado: cuántas cuentas, cuánto más co-actúan que esas mismas cuentas al azar, qué narrativas empujan y su evidencia. Misma escala de color en todas las tarjetas.</p>
 {_tarjetas(d['tarjetas'], d['delta_s']) if d['tarjetas'] else '<p class="nota">No se detectaron operaciones coordinadas.</p>'}
 
 <h2>4 · Costo y escala</h2>
@@ -397,18 +396,21 @@ function dibujar() {{
     line:{{ dash:'dash', width:2.5, color: o.i >= 0 ? css('--series-' + (o.i + 1)) : css('--otras') }} }}));
   L1.annotations = D.origenes.map((o, k) => ({{ x:o.x, yref:'paper', y:1.0 - 0.08 * (k % 7),
     text:'origen ' + o.id + ' · ' + o.titulo, showarrow:false, yanchor:'bottom',
+    bgcolor:css('--surface-1'), borderwidth:0, borderpad:2,
     font:{{ size:11, color:css('--text-secondary') }} }}));
-  Plotly.react('g_tiempo', tr, L1, {{ displaylogo:false, responsive:true }});
+  const cfg = {{ displaylogo:false, responsive:true, displayModeBar:false }};
+  Plotly.react('g_tiempo', tr, L1, cfg);
 
+  const zmax = Math.max(1, ...Object.values(D.heat).flat());
   for (const gid in D.heat) {{
-    const Lh = base(); Lh.margin = {{ l:10, r:60, t:6, b:34 }};
-    Lh.xaxis = {{ title:{{ text:'hora (local -03:00)', font:{{ size:10 }} }}, tickfont:{{ size:9 }},
-      dtick:4, gridcolor:css('--grid'), zeroline:false }};
+    const Lh = base(); Lh.margin = {{ l:10, r:70, t:4, b:30 }};
+    Lh.xaxis = {{ title:{{ text:'hora local (−03:00)', font:{{ size:10 }} }}, tickfont:{{ size:9 }},
+      tickmode:'array', tickvals:[0, 3, 6, 9, 12, 15, 18, 21], gridcolor:css('--grid'), zeroline:false }};
     Lh.yaxis = {{ visible:false }};
     Plotly.react('h_' + gid, [{{ z:[D.heat[gid]], x:[...Array(24).keys()], y:[''],
-      type:'heatmap', showscale:true, colorbar:{{ thickness:10, tickfont:{{ size:9 }} }},
-      colorscale:'Viridis', hovertemplate:'%{{x}}h: %{{z}} comentarios<extra></extra>' }}], Lh,
-      {{ displaylogo:false, responsive:true }});
+      type:'heatmap', showscale:true, zmin:0, zmax:zmax,
+      colorbar:{{ thickness:8, tickfont:{{ size:9 }}, title:{{ text:'comentarios', font:{{ size:9 }} }} }},
+      colorscale:'Viridis', hovertemplate:'%{{x}}h: %{{z}} comentarios<extra></extra>' }}], Lh, cfg);
   }}
 
   const L3 = base();
@@ -416,8 +418,7 @@ function dibujar() {{
   L3.legend = {{ orientation:'h', y:-0.12, font:{{ color:css('--text-primary') }} }};
   Plotly.react('g_costo', [{{ x:D.etapas.seg, y:D.etapas.etapa, type:'bar', orientation:'h',
     name:'segundos por etapa', marker:{{ color:css('--series-1') }},
-    hovertemplate:'%{{y}}: %{{x:.1f}} s<extra></extra>' }}], L3,
-    {{ displaylogo:false, responsive:true }});
+    hovertemplate:'%{{y}}: %{{x:.1f}} s<extra></extra>' }}], L3, cfg);
 }}
 dibujar();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', dibujar);
