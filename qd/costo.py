@@ -5,6 +5,8 @@ import importlib.util
 import json
 import os
 import platform
+import resource
+import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -45,6 +47,30 @@ def describir_hardware() -> str:
     return ", ".join(partes)
 
 
+def _ram_pico_gb() -> float:
+    """Pico de RSS del proceso: ru_maxrss viene en KB en Linux y en bytes en macOS."""
+    pico = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return round(pico / 1e9, 2) if sys.platform == "darwin" else round(pico / 1e6, 2)
+
+
+def medir_almacenamiento(datos: Path, work: Path) -> dict:
+    """Tamaños reales en MB (1e6 bytes): la base DuckDB (+ WAL si existe), el parquet
+    particionado por día y la entrada completa menos la carpeta verdad/."""
+    def _tam(ruta: Path) -> float:
+        if ruta.is_file():
+            return ruta.stat().st_size / 1e6
+        if ruta.is_dir():
+            return sum(f.stat().st_size for f in ruta.rglob("*") if f.is_file()) / 1e6
+        return 0.0
+
+    db = work / "qd.duckdb"
+    entrada = sum(f.stat().st_size for f in datos.rglob("*")
+                  if f.is_file() and "verdad" not in f.relative_to(datos).parts) / 1e6
+    return {"duckdb": round(_tam(db) + _tam(Path(str(db) + ".wal")), 1),
+            "parquet": round(_tam(work / "parquet"), 1),
+            "entrada": round(entrada, 1)}
+
+
 class Costo:
     def __init__(self, precios: Dict[str, float], almacenamiento: str):
         self.t0 = time.perf_counter()
@@ -59,6 +85,7 @@ class Costo:
         self.fallas_llm = 0          # llamadas de red fallidas (incl. reintentos agotados)
         self.faltas_cache = 0        # respuestas pedidas que no estaban en caché (sin clave / degradado)
         self.llm_usado = False       # se instanció algún LLM por API
+        self.almacenamiento_mb = None  # lo mide el pipeline justo antes de escribir costo.json
         self.modo_llm = "apagado"
         self.notas = []
         self.comentarios = 0
@@ -113,10 +140,12 @@ class Costo:
         if self.modo_llm == "apagado":
             self.nota("sin IA en esta corrida")
         usd = self.usd()
+        seg = round(time.perf_counter() - self.t0, 1)
         n = max(self.comentarios, 1)
+        usd_hora = self.precios.get("usd_hora_cpu")
         return {
             "comentarios_procesados": self.comentarios,
-            "segundos": round(time.perf_counter() - self.t0, 1),
+            "segundos": seg,
             "tokens_ia": self.tok_in + self.tok_out + self.tok_local,
             "usd_ia": round(usd, 4),
             "usd_por_mil_comentarios": round(usd / n * 1000, 6),
@@ -124,6 +153,15 @@ class Costo:
             "almacenamiento": self.almacenamiento,
             "notas": "; ".join(self.notas),
             # Extras (el evaluador los ignora; sirven al jurado)
+            "ram_pico_gb": _ram_pico_gb(),
+            "almacenamiento_mb": self.almacenamiento_mb,
+            "comentarios_por_segundo": round(self.comentarios / seg, 1) if seg else None,
+            "segundos_por_mil_comentarios": round(seg / n * 1000, 4),
+            "usd_computo_por_mil": round(seg * float(usd_hora) / 3600 / n * 1000, 6) if usd_hora else None,
+            "proyeccion_1M_por_dia": {
+                "horas": round(seg / n * 1e6 / 3600, 2),
+                "metodo": "extrapolación lineal desde esta corrida; estimación, no medición: "
+                          "e08 crece más que linealmente en publicaciones virales"},
             "desglose_segundos": self.etapas,
             "llamadas_llm": self.llamadas,
             "tokens_llm_local": self.tok_local,

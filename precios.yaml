@@ -2,3 +2,6 @@
 modelo: "gemini-3.8-flash"   # el mismo de config.yaml › llm.modelo
 usd_por_millon_entrada: 0.75
 usd_por_millon_salida: 3.75
+# AWS EC2 c6i.4xlarge (16 vCPU, 32 GiB), Linux on-demand, us-east-1, lista pública de AWS
+# consultada el 2026-11-12; la más cercana por encima de la máquina de prueba (12 núcleos, 15 GB).
+usd_hora_cpu: 0.68
