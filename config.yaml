@@ -57,7 +57,7 @@ coord:
   delta_s: 450           # ventana de co-acción (barrido en práctica: 300 -> 47.2, 450 -> 48.8, 600 -> 48.4)
   lift_min: 3.0          # par coordinado si score_obs / (esperado_nulo + ε) >= lift_min
   eps_factor: 1.0        # ε = eps_factor * peso mediano de una co-ocurrencia
-  gamma: 1.0             # resolución de Louvain
+  gamma: 0.3             # resolución de Louvain (meseta 0.2-0.4: práctica 49.42, p10 45.65; junta los pedazos de C2)
   min_pub: 2
   min_size: 5            # cliques chicas aparecen por azar; las campañas de práctica tienen 25-60 cuentas
   soporte_min: 0.3       # poda: fracción de vecinos en común para conservar una arista
