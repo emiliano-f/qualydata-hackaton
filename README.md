@@ -33,6 +33,18 @@ make test-sucio               # datos rotos a propósito: el pipeline no se cae
 - **Dependencias:** `pyproject.toml` + `uv.lock` son la fuente única; `requirements.txt` se genera con
   `uv export --no-hashes --no-dev --format requirements-txt -o requirements.txt`.
 
+## Cómo reproducir
+
+- `make instalar` con internet una sola vez: además de las dependencias deja el modelo e5 en el
+  caché de Hugging Face (`~/.cache/huggingface`), así las corridas no necesitan red.
+- Si e5 no está, el pipeline corta con `e5 no disponible: corré make instalar con internet o usá
+  --embed tfidf a propósito` en vez de cambiar de motor a escondidas (el respaldo TF-IDF solo corre
+  si se pide explícito).
+- Para comparar dos corridas se comparan los 3 CSV (`cmp salida/practica/comentarios.csv otra/`):
+  `costo.json` siempre difiere (segundos, contadores de caché).
+- Si aparecen diferencias mínimas entre máquinas, re-correr con
+  `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1`.
+
 ## Cómo funciona
 
 | Etapa | Qué hace | Por qué funciona en un set nuevo |
@@ -89,7 +101,8 @@ comentarios que caen en la misma ventana de una publicación viral. Por eso, en 
 equivalente en práctica (B-cubed 0,996 contra 0,980) y en el pseudo-final (0,969 contra 0,962). Igual mantenemos
 e5 como motor principal: los datos de práctica salen de plantillas con variaciones ortográficas, que es justo lo que TF-IDF
 captura. Un set con más paráfrasis (mismo significado con otras palabras) lo agrupa e5 y no TF-IDF. TF-IDF queda como
-plan B automático si el modelo no carga (`--embed tfidf`).
+alternativa explícita (`--embed tfidf` o `embed.motor: tfidf`): si el modelo no carga, el pipeline corta con error
+en vez de cambiar de motor a escondidas.
 
 ## Costo (ver `entrega/costo.json`)
 

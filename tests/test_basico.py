@@ -291,6 +291,54 @@ def test_consolidar_y_sets():
     assert cfg["narr"]["q_T"] == 0.4 and cfg["llm"]["activo"] is False
 
 
+def test_embed_e5_corta_sin_respaldo():
+    """Si el motor pedido es e5 y no carga, corta con RuntimeError; tfidf solo corre si se pide."""
+    import tempfile
+    from types import SimpleNamespace
+
+    import numpy as np
+    from qd.costo import Costo
+    from qd.etapas import e02_embed
+
+    class _DB:
+        def __init__(self):
+            self.tab = {}
+        def leer(self, t):
+            return pd.DataFrame({"h_texto": np.array([11, 22, 33], np.int64),
+                                 "texto": ["hola mundo", "otro texto", "chau chau"],
+                                 "norm": ["hola mundo", "otro texto", "chau chau"]})
+        def existe(self, t):
+            return t in self.tab
+        def guardar(self, t, df):
+            self.tab[t] = df
+
+    def _ctx(motor, tmp):
+        return SimpleNamespace(db=_DB(), work=Path(tmp), cfg={}, embed=motor, costo=Costo({}, "x"))
+
+    llamado = {"e5": 0}
+    orig = e02_embed._e5
+    def _falla(*a, **k):
+        llamado["e5"] += 1
+        raise OSError("sin red")
+    e02_embed._e5 = _falla
+    try:
+        try:
+            e02_embed.correr(_ctx("e5", tempfile.mkdtemp()))
+        except RuntimeError as e:
+            assert str(e) == ("e5 no disponible: corré make instalar con internet o usá "
+                              "--embed tfidf a propósito")
+            assert e.__cause__ is not None
+        else:
+            raise AssertionError("e5 sin modelo tenía que cortar, no caer a tfidf")
+        ctx2 = _ctx("tfidf", tempfile.mkdtemp())
+        e02_embed.correr(ctx2)
+        assert llamado["e5"] == 1                                    # tfidf no toca _e5
+        assert (ctx2.db.tab["textos_emb"]["motor"] == "tfidf").all()
+        assert np.load(ctx2.work / "emb.npy").shape[0] == 3
+    finally:
+        e02_embed._e5 = orig
+
+
 if __name__ == "__main__":
     for nombre, f in list(globals().items()):
         if nombre.startswith("test_"):

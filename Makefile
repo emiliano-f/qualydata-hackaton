@@ -60,3 +60,4 @@ limpiar:
 
 instalar:
 	@if command -v uv >/dev/null 2>&1; then uv sync; else pip install -r requirements.txt; fi
+	@$(PY) -c "from qd.config import cargar, obtener; from sentence_transformers import SentenceTransformer; m = obtener(cargar('config.yaml'), 'embed.modelo', 'intfloat/multilingual-e5-small'); print('make instalar: pre-descargando %s -> caché de Hugging Face (~/.cache/huggingface)' % m); SentenceTransformer(m); print('modelo listo en el caché')"

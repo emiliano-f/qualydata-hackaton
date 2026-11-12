@@ -2,7 +2,9 @@
 
 Motor principal: intfloat/multilingual-e5-small (prefijo 'query: ', normalizado), con caché
 global en cache/emb/<modelo>/ (claves = h_texto) que sirve entre corridas y entre sets.
-Plan B (--embed tfidf o si e5 falla): TF-IDF de caracteres (3-5) + SVD 256, sin descargas.
+Plan B solo a propósito (--embed tfidf o embed.motor: tfidf): TF-IDF de caracteres (3-5) + SVD 256,
+sin descargas. Si el motor pedido es e5 y no carga, la etapa corta con RuntimeError: el respaldo
+no es automático para que dos corridas no salgan con embeddings distintos sin avisar.
 
 Escribe: tabla textos_emb(h_texto, motor) y work/<set>/emb.npy (float32, mismo orden).
 Si ya existen para el mismo motor y los mismos textos, los reutiliza (corrida en caliente).
@@ -88,9 +90,10 @@ def correr(ctx) -> None:
         try:
             X = _e5(h, rep["texto"].tolist(), ctx.cfg)
             ctx.costo.nota(f"embeddings locales {obtener(ctx.cfg, 'embed.modelo')}")
-        except Exception as e:  # noqa: BLE001 - sin modelo/red: plan B determinista
-            log.warning("e5 no disponible (%s): uso plan B tfidf", e)
-            motor = ctx.embed = "tfidf"
+        except Exception as e:  # noqa: BLE001 - sin modelo/red: cortar, no cambiar de motor a escondidas
+            msg = "e5 no disponible: corré make instalar con internet o usá --embed tfidf a propósito"
+            log.error("%s (%s)", msg, e)
+            raise RuntimeError(msg) from e
     if X is None:
         t = time.perf_counter()
         X = _tfidf(rep["norm"].tolist(), int(obtener(ctx.cfg, "micro.semilla", 42)))
