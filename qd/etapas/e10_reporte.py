@@ -42,7 +42,7 @@ def _tabla(df: pd.DataFrame) -> str:
     return f'<div class="tabla"><table><thead><tr>{cab}</tr></thead><tbody>{filas}</tbody></table></div>'
 
 
-def datos_reporte(db, costo: dict) -> dict:
+def datos_reporte(db, costo: dict, cfg: dict) -> dict:
     com = db.leer("com")[["comentario_id", "cuenta_id", "ts", "respuesta_a"]]
     asig = db.leer("asig")[["comentario_id", "narrativa", "postura"]]
     narr = db.leer("narr") if db.existe("narr") else pd.DataFrame(columns=["narrativa", "titulo", "ts_origen", "n"])
@@ -54,14 +54,18 @@ def datos_reporte(db, costo: dict) -> dict:
     nar = df[df["narrativa"] != ""]
     t0, t1 = int(com["ts"].min()), int(com["ts"].max())
 
-    # --- serie temporal
-    orden = nar["narrativa"].value_counts().index.tolist()
+    # --- serie temporal (sin las narrativas diminutas de reporte.min_frac)
+    conteo = nar["narrativa"].value_counts()
+    min_frac = float(obtener(cfg, "reporte.min_frac", 0.001))
+    orden = conteo[conteo >= min_frac * len(com)].index.tolist()
+    ocultas = conteo[~conteo.index.isin(orden)]
     top = orden[:8]
-    nar = nar.assign(serie=np.where(nar["narrativa"].isin(top), nar["narrativa"], "Otras"))
+    nar_v = nar[nar["narrativa"].isin(orden)]
+    nar_v = nar_v.assign(serie=np.where(nar_v["narrativa"].isin(top), nar_v["narrativa"], "Otras"))
     paso = 6 * 3600
-    nar = nar.assign(b=(nar["ts"] - t0) // paso)
-    tab = nar.groupby(["b", "serie"]).size().unstack(fill_value=0).reindex(range(int((t1 - t0) // paso) + 1),
-                                                                          fill_value=0)
+    nar_v = nar_v.assign(b=(nar_v["ts"] - t0) // paso)
+    tab = nar_v.groupby(["b", "serie"]).size().unstack(fill_value=0).reindex(range(int((t1 - t0) // paso) + 1),
+                                                                            fill_value=0)
     titulos = dict(zip(narr["narrativa"], narr["titulo"])) if len(narr) else {}
     x = [_f(t0 + i * paso) for i in tab.index]
     series = [{"id": s, "titulo": titulos.get(s, "Otras narrativas" if s == "Otras" else s),
@@ -70,6 +74,8 @@ def datos_reporte(db, costo: dict) -> dict:
 
     # --- tabla de narrativas
     span = t1 - t0
+    # Quién la empuja: grupo con mayor lift = share en la narrativa / share en todas las narrativas
+    base_g = nar[nar["grupo"] != ""]["grupo"].value_counts() / max(len(nar), 1)
     filas, origenes = [], []
     for lab in orden:
         g = nar[nar["narrativa"] == lab]
@@ -77,14 +83,22 @@ def datos_reporte(db, costo: dict) -> dict:
         ts_o = int(fila_n["ts_origen"].iloc[0]) if len(fila_n) and pd.notna(fila_n["ts_origen"].iloc[0]) else int(g["ts"].min())
         emergente = (ts_o - t0) > 0.1 * span
         gc = g[g["grupo"] != ""]["grupo"].value_counts()
-        empuja = f"{gc.index[0]} ({100 * gc.iloc[0] / len(g):.1f}% de sus comentarios)" if len(gc) else "-"
+        empuja = "-"
+        if len(gc):
+            lift = (gc / len(g)) / base_g.reindex(gc.index).fillna(1e-9)
+            ok = gc[(lift >= 3) & (gc >= 20)]
+            if len(ok):
+                gid = lift[ok.index].idxmax()
+                empuja = (f"{gid} · {100 * gc[gid] / len(g):.1f}% de los comentarios, "
+                          f"{lift[gid]:.0f}× lo esperable").replace(".", ",")
         filas.append({"Narrativa": lab, "Título": titulos.get(lab, lab), "Comentarios": len(g),
                       "% rechaza": f"{100 * (g['postura'] == 'rechaza').mean():.0f}%",
                       "Origen": _f(ts_o) + (" · emergente" if emergente else ""),
                       "% de cuentas coordinadas": f"{100 * (g['grupo'] != '').mean():.1f}%",
                       "Quién la empuja": empuja})
-        if emergente and lab in top:
-            origenes.append({"x": _f(ts_o), "id": lab})
+        if emergente:
+            origenes.append({"x": _f(ts_o), "id": lab, "i": top.index(lab) if lab in top else -1,
+                             "titulo": titulos.get(lab, lab)[:30]})
 
     # --- red y grupos
     nodos, aristas, filas_g = [], [], []
@@ -132,6 +146,7 @@ def datos_reporte(db, costo: dict) -> dict:
 
     etapas = costo.get("desglose_segundos", {})
     return {"x": x, "series": series, "origenes": origenes, "narr": pd.DataFrame(filas),
+            "ocultas": {"n": int(len(ocultas)), "comentarios": int(ocultas.sum())},
             "nodos": nodos, "aristas": aristas, "grupos": pd.DataFrame(filas_g), "costo": costo,
             "etapas": {"etapa": list(etapas), "seg": [float(v) for v in etapas.values()]},
             "total": len(com), "ruido": float((df["narrativa"] == "").mean()),
@@ -187,9 +202,10 @@ td {{ font-variant-numeric:tabular-nums; }}
 <div class="kpis">{tiles}</div>
 
 <h2>1 · Qué circula y desde cuándo</h2>
-<p class="nota">Comentarios por narrativa cada 6 horas (las 8 más grandes; el resto en «Otras»). Las líneas punteadas marcan el origen estimado de las narrativas emergentes.</p>
+<p class="nota">Comentarios por narrativa cada 6 horas (las 8 más grandes; el resto en «Otras»). Las líneas punteadas marcan el origen estimado de cada narrativa emergente que se muestra (en el color de su serie las del top; en gris el resto).</p>
 <div id="g_tiempo" class="graf"></div>
 {_tabla(d['narr'])}
+{f'<p class="nota">{d["ocultas"]["n"]} narrativas chicas ({d["ocultas"]["comentarios"]:,} comentarios) no se muestran</p>'.replace(",", ".") if d["ocultas"]["n"] else ''}
 
 <h2>2 · Quién lo empuja: operaciones coordinadas</h2>
 <p class="nota">Cada punto es una cuenta coordinada (tamaño = actividad); las líneas unen cuentas que actúan juntas una y otra vez, por encima de lo esperable por azar. Se destacan los 3 grupos más grandes.</p>
@@ -218,9 +234,10 @@ function dibujar() {{
   L1.yaxis.title = {{ text:'comentarios cada 6 h' }}; L1.hovermode = 'x unified'; L1.showlegend = true;
   L1.legend = {{ orientation:'h', y:-0.18, font:{{ color:css('--text-primary') }} }}; L1.margin.b = 110;
   L1.shapes = D.origenes.map(o => ({{ type:'line', x0:o.x, x1:o.x, yref:'paper', y0:0, y1:1,
-    line:{{ dash:'dot', width:1.5, color:css('--text-muted') }} }}));
-  L1.annotations = D.origenes.map(o => ({{ x:o.x, yref:'paper', y:1, text:'origen ' + o.id, showarrow:false,
-    yanchor:'bottom', font:{{ size:11, color:css('--text-secondary') }} }}));
+    line:{{ dash:'dash', width:2.5, color: o.i >= 0 ? css('--series-' + (o.i + 1)) : css('--otras') }} }}));
+  L1.annotations = D.origenes.map((o, k) => ({{ x:o.x, yref:'paper', y:1.0 - 0.08 * (k % 7),
+    text:'origen ' + o.id + ' · ' + o.titulo, showarrow:false, yanchor:'bottom',
+    font:{{ size:11, color:css('--text-secondary') }} }}));
   Plotly.react('g_tiempo', tr, L1, {{ displaylogo:false, responsive:true }});
 
   const grupos = [...new Set(D.nodos.map(n => n.g))];
@@ -254,7 +271,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', dibujar);
 def correr(ctx) -> None:
     if not obtener(ctx.cfg, "reporte.activo", True):
         return
-    d = datos_reporte(ctx.db, ctx.costo.a_dict())
+    d = datos_reporte(ctx.db, ctx.costo.a_dict(), ctx.cfg)
     destino = Path(obtener(ctx.cfg, "reporte.dir", "reportes")) / f"{ctx.datos.name}.html"
     destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_text(html_reporte(d, f"QualyData · narrativas y coordinación · {ctx.datos.name}"), encoding="utf-8")

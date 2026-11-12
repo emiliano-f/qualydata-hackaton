@@ -101,6 +101,7 @@ llm_local:               # LLM chico en CPU, sin clave ni costo; solo lee logits
 reporte:
   activo: true
   dir: reportes
+  min_frac: 0.001        # narrativas con menos de esta fracción del total no se muestran en el reporte
 
 # Valores de práctica (llenar en H1). El validador avisa si el set final cae fuera de [0.5x, 2x].
 sanidad:
