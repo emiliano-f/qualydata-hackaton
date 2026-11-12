@@ -140,3 +140,34 @@ existían antes. La tabla de resultados es concreta.
    antes; requiere el visto bueno del equipo.
 5. README: postura real, limitaciones, reproducción, dónde está el reporte. Reporte: "Quién la empuja" solo por encima
    de lo esperable y ocultar narrativas diminutas.
+
+## 6. Después de leer el traspaso: comparación y cambios aplicados
+
+**Coincidencias.** El traspaso señala los mismos riesgos operativos: LLM lento o caído (un ensayo de 19 min con
+Gemini saturado), coordinación que no generaliza a 10 días y un reporte sin revisión visual. También coinciden la
+línea base (48,78 / 44,21), las asimetrías del puntuador y el respaldo determinista.
+**Diferencias.** (a) El traspaso daba por hecha la reproducción sin clave desde `cache/llm/final/`, pero el código
+nunca leía el caché sin clave (R2). (b) Recomendaba `llm.activo: false`, pero `config.yaml` seguía en `true`.
+(c) No detectaba R3. Lo confirmé en el caché de práctica de otro clon (`qualydata_hackaton/cache/llm/practica`): desde
+las 11:28 las respuestas vienen truncadas ('NARRATIVA', '```json\n{'), con 1–6 tokens visibles y 110–145 de
+razonamiento oculto. Las respuestas de 10:41–11:19 están completas, así que el 49,37 "con IA" probablemente sí midió un
+LLM, aunque con la configuración anterior. (d) El traspaso no menciona los falsos positivos de coordinación por
+cuentas hiperactivas genuinas (O1).
+
+**Cambios (rama `devin/auditoria`, un commit por punto; gates test/humo/test-sucio ok en todos):**
+
+| Commit | Cambio | Práctica | p10 |
+|---|---|---|---|
+| `9a5081c` | O2 `coord.gamma` 0,3 | 48,78 → 49,42 | 44,21 → 45,65 |
+| `1a7e025` `d5c887a` `f671590` | R6 log a `work/`, R2 solo-caché sin clave, R5 costo honesto | = | = |
+| `7e74ff6` | R3 max_tokens 1000, `reasoning_effort: low`, truncadas no se cachean; `llm.activo: false` con corte rápido | = | = |
+| `72da337` | O1 cohesión de grupo vs nulo (`cohesion_min` 0,2): saca 7 grupos falsos en cada set | 49,42 → **51,92** | 45,65 → **47,57** |
+| `75cb2af` | `modo_llm` "desde_cache" solo con aciertos reales | = | = |
+| `a0d17ac` | Reporte: narrativas diminutas ocultas, "Quién la empuja" por lift ≥ 3, líneas de origen de todas las emergentes | = | = |
+
+Prueba de punta a punta de R2 con un servidor falso compatible con `/chat/completions`, sobre el pseudo-final. Los 3 CSV
+salen byte-idénticos con clave y sin clave (0 llamadas de red), y `costo.json` declara los mismos tokens y USD, con
+`modo_llm` completo / desde_cache. Con respuestas truncadas, el pipeline queda degradado y no las cachea.
+O1 baja un poco la postura: 0,672 → 0,649 en práctica y 0,763 → 0,703 en p10. Pasa porque cambia el voto de cuentas
+coordinadas, y es otra muestra de R1 (orientación con mucha varianza). El total igual sube en los dos sets.
+Pendiente: O3 (TF-IDF) se descartó por decisión del equipo (se mantiene e5). El híbrido e5 + TF-IDF no se probó.
