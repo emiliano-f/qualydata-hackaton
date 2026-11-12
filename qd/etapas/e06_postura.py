@@ -241,11 +241,9 @@ def correr(ctx) -> None:
     llm = None
     if not ctx.sin_llm and obtener(cfg, "llm.orientar", True):
         from qd.llm import LLM
+        # Aun degradado (sin clave) sirve: chat() responde desde el caché sin red.
         llm = LLM(cfg, ctx.costo, ctx.datos.name)
-        if llm.disponible():
-            ctx.extra["llm"] = llm
-        else:
-            llm = None
+        ctx.extra["llm"] = llm
     if llm is None and obtener(cfg, "postura.llm_local", False):
         from qd.llm_local import LLMLocal
         llm = LLMLocal(cfg, ctx.costo)

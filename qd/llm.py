@@ -70,6 +70,9 @@ class LLM:
         self.cache.mkdir(parents=True, exist_ok=True)
         self.fallas_seguidas = 0
         self.degradado = not (self.clave and self.modelo)
+        if self.degradado:
+            log.info("LLM: %s -> solo caché (%s)",
+                     "sin LLM_API_KEY" if not self.clave else "llm.modelo vacío", self.cache)
         self.tokens = 0
 
     def disponible(self) -> bool:

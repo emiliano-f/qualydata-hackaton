@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import importlib
 import logging
-import os
 import sys
 import time
 from dataclasses import dataclass, field
@@ -86,8 +85,9 @@ def main(argv=None) -> int:
     db = abrir_almacen(a.almacen, work, cfg.get("almacen", {}))
     desc = "DuckDB local + Parquet particionado por día" if db.motor == "duckdb" else "pandas en memoria (prueba)"
     costo = Costo(precios, desc)
-    sin_llm = (a.sin_llm or not os.environ.get("LLM_API_KEY") or not qcfg.obtener(cfg, "llm.activo", True)
-               or not str(qcfg.obtener(cfg, "llm.modelo", "") or ""))
+    # Apagado solo si se pide --sin-llm o llm.activo: false. Activo sin clave = modo solo-caché
+    # (LLM.degradado lee el caché antes de rendirse): reproduce la entrega sin costo.
+    sin_llm = a.sin_llm or not qcfg.obtener(cfg, "llm.activo", True)
     costo.modo_llm = "apagado" if sin_llm else "completo"
     ctx = Contexto(a.datos, a.salida, work, cfg, db, costo, sin_llm=sin_llm,
                    embed=a.embed or qcfg.obtener(cfg, "embed.motor", "e5"))

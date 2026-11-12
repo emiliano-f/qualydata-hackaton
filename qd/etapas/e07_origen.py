@@ -55,7 +55,6 @@ def correr(ctx) -> None:
     if llm is None and not ctx.sin_llm and obtener(ctx.cfg, "llm.titulos", True):
         from qd.llm import LLM
         llm = LLM(ctx.cfg, ctx.costo, ctx.datos.name)
-        llm = llm if llm.disponible() else None
     local = None
     if llm is None and obtener(ctx.cfg, "llm_local.titulos", False):
         from qd.llm_local import LLMLocal
