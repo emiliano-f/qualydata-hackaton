@@ -59,6 +59,8 @@ class LLM:
     def __init__(self, cfg: dict, costo=None, set_nombre: str = "set"):
         self.cfg = cfg
         self.costo = costo
+        if costo is not None:
+            costo.llm_usado = True
         self.clave = os.environ.get("LLM_API_KEY", "")
         self.base = str(obtener(cfg, "llm.base_url", "https://api.openai.com/v1/")).rstrip("/") + "/"
         self.modelo = str(obtener(cfg, "llm.modelo", ""))
@@ -85,13 +87,23 @@ class LLM:
         with urllib.request.urlopen(req, timeout=self.timeout) as r:
             return json.loads(r.read().decode("utf-8"))
 
+    @staticmethod
+    def _uso_tokens(uso: dict) -> tuple:
+        """(tokens de entrada, de salida) de un usage de la API. Salida = total - prompt si viene
+        total_tokens (incluye razonamiento oculto, que se factura); si no, completion_tokens."""
+        ti = int(uso.get("prompt_tokens", 0) or 0)
+        if "total_tokens" in uso:
+            return ti, int(uso.get("total_tokens") or 0) - ti
+        return ti, int(uso.get("completion_tokens", 0) or 0)
+
     def chat(self, prompt: str, max_tokens: int = 200) -> Optional[str]:
         f = self.cache / (hashlib.sha256(json.dumps([self.modelo, SISTEMA, prompt, max_tokens],
                                                     ensure_ascii=False).encode()).hexdigest()[:32] + ".json")
         if f.exists():
+            d = json.loads(f.read_text(encoding="utf-8"))
             if self.costo:
-                self.costo.registrar_llm(0, 0, desde_cache=True)
-            return json.loads(f.read_text(encoding="utf-8"))["texto"]
+                self.costo.registrar_llm(*self._uso_tokens(d.get("uso") or {}), desde_cache=True)
+            return d["texto"]
         if self.degradado or self.tokens >= self.tope:
             return None
         cuerpo = {"model": self.modelo, "temperature": 0, "max_tokens": max_tokens,
@@ -102,7 +114,7 @@ class LLM:
                 r = self._post(cuerpo)
                 texto = (r["choices"][0]["message"].get("content") or "").strip()
                 uso = r.get("usage") or {}
-                ti, to = int(uso.get("prompt_tokens", 0)), int(uso.get("completion_tokens", 0))
+                ti, to = self._uso_tokens(uso)
                 self.tokens += ti + to
                 if self.costo:
                     self.costo.registrar_llm(ti, to, desde_cache=False)
@@ -110,11 +122,15 @@ class LLM:
                 self.fallas_seguidas = 0
                 return texto
             except urllib.error.HTTPError as e:
+                if self.costo:
+                    self.costo.fallas_llm += 1
                 reintentable = e.code == 429 or e.code >= 500
                 log.warning("LLM HTTP %s (intento %d): %s", e.code, intento + 1, e.read()[:200])
                 if not reintentable:
                     break
             except Exception as e:  # noqa: BLE001 - timeout, red, respuesta rara
+                if self.costo:
+                    self.costo.fallas_llm += 1
                 log.warning("LLM error (intento %d): %s", intento + 1, e)
             time.sleep(espera)
             espera *= 2
@@ -122,8 +138,6 @@ class LLM:
         if self.fallas_seguidas >= self.max_fallas:
             log.warning("LLM: %d fallas seguidas -> modo degradado (respaldo determinista)", self.fallas_seguidas)
             self.degradado = True
-            if self.costo:
-                self.costo.modo_llm = "degradado"
         return None
 
     @staticmethod

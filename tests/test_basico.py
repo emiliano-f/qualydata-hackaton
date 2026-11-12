@@ -142,6 +142,57 @@ def test_llm_parseo():
     assert LLM._rechaza("**NARRATIVA:** «x»\n**RECHAZA:** a")[0] == "A"
 
 
+def test_llm_cache_y_modo():
+    """R2/R5: acierto de caché sin clave devuelve el texto y suma el uso guardado; los 4 modo_llm."""
+    import hashlib
+    import json
+    import os
+    import tempfile
+    from qd.costo import Costo
+    from qd.llm import LLM, SISTEMA
+    clave = os.environ.pop("LLM_API_KEY", None)
+    try:
+        cfg = {"llm": {"cache_dir": tempfile.mkdtemp(), "modelo": "m", "reintentos": 0}}
+        c = Costo({}, "x")
+        c.resolver_modo_llm()
+        assert c.modo_llm == "apagado"                          # ningún LLM instanciado
+        c = Costo({}, "x")
+        llm = LLM(cfg, c, "set")
+        assert llm.degradado and c.llm_usado
+        prompt = "prompt de prueba"
+        h = hashlib.sha256(json.dumps(["m", SISTEMA, prompt, 200],
+                                      ensure_ascii=False).encode()).hexdigest()[:32]
+        (llm.cache / f"{h}.json").write_text(
+            json.dumps({"texto": "OK", "uso": {"prompt_tokens": 10, "completion_tokens": 5,
+                                               "total_tokens": 140}}), encoding="utf-8")
+        assert llm.chat(prompt) == "OK"
+        assert c.aciertos_cache == 1 and c.tok_in == 10 and c.tok_out == 130   # salida = total - prompt
+        c.resolver_modo_llm()
+        assert c.modo_llm == "desde_cache" and c.llamadas == 0
+        os.environ["LLM_API_KEY"] = "falsa"
+        c = Costo({}, "x")
+        llm = LLM(cfg, c, "set2")
+        llm._post = lambda cuerpo: {"choices": [{"message": {"content": "x"}, "finish_reason": "stop"}],
+                                    "usage": {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}}
+        assert llm.chat("otro prompt") == "x"
+        c.resolver_modo_llm()
+        assert c.modo_llm == "completo" and c.llamadas == 1 and c.tok_out == 2
+        c = Costo({}, "x")
+        llm = LLM(cfg, c, "set3")
+
+        def _boom(cuerpo):
+            raise ConnectionError("sin red")
+        llm._post = _boom
+        assert llm.chat("prompt que falla") is None
+        c.resolver_modo_llm()
+        assert c.modo_llm == "degradado" and c.fallas_llm == 1
+    finally:
+        if clave is not None:
+            os.environ["LLM_API_KEY"] = clave
+        else:
+            os.environ.pop("LLM_API_KEY", None)
+
+
 def test_consolidar_y_sets():
     import numpy as np
     from qd.config import aplicar_sets

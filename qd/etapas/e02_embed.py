@@ -79,6 +79,8 @@ def correr(ctx) -> None:
         prev = ctx.db.leer("textos_emb")
         if len(prev) == len(h) and (prev["motor"] == motor).all() and np.array_equal(prev["h_texto"].to_numpy(), h):
             log.info("e02: embeddings %s reutilizados (%d textos)", motor, len(h))
+            ctx.costo.nota(f"embeddings locales {obtener(ctx.cfg, 'embed.modelo')}" if motor == "e5"
+                           else "embeddings tfidf de caracteres + SVD (plan B)")
             return
 
     X = None

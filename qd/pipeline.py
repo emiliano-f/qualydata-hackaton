@@ -115,6 +115,7 @@ def main(argv=None) -> int:
         log.exception("El pipeline falló")
         return 1
     finally:
+        costo.resolver_modo_llm()
         if costo.modo_llm == "apagado":
             costo.nota("sin IA en esta corrida")
         costo.escribir(a.salida / "costo.json")
