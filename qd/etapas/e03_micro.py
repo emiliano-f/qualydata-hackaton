@@ -2,6 +2,7 @@
 estratificada por día de aparición (así las narrativas que nacen tarde tienen peso propio)
 y aplicado a todos los textos únicos.
 
+Los textos marcados como ruido por e02b no participan y quedan en micro -1.
 Escribe: micro_txt(h_texto, micro, conf) y work/<set>/centroides.npy (L2-normalizados).
 conf = coseno del texto con su centroide.
 """
@@ -36,7 +37,12 @@ def elegir_k(n: int, cfg: dict, n_muestra: int) -> int:
 def correr(ctx) -> None:
     from sklearn.cluster import MiniBatchKMeans
 
-    h, X = vectores.cargar(ctx)
+    h_all, X_all = vectores.cargar(ctx)
+    ruido = np.zeros(len(h_all), dtype=bool)
+    if ctx.db.existe("textos_ruido"):
+        tr = ctx.db.leer("textos_ruido").set_index("h_texto").reindex(h_all)
+        ruido = tr["ruido_txt"].fillna(False).astype(bool).to_numpy()
+    h, X = h_all[~ruido], X_all[~ruido]
     tx = ctx.db.leer("textos").set_index("h_texto").loc[h]
     semilla = int(obtener(ctx.cfg, "micro.semilla", 42))
     rng = np.random.default_rng(semilla)
@@ -50,7 +56,10 @@ def correr(ctx) -> None:
     conf = (X * C[lab]).sum(axis=1)
 
     np.save(ctx.work / "centroides.npy", C)
-    ctx.db.guardar("micro_txt", pd.DataFrame({"h_texto": h, "micro": lab.astype(np.int64),
-                                              "conf": conf.astype(np.float64)}))
+    # los textos ruido quedan en micro -1 (conf 0)
+    ctx.db.guardar("micro_txt", pd.DataFrame({
+        "h_texto": np.concatenate([h, h_all[ruido]]),
+        "micro": np.concatenate([lab.astype(np.int64), np.full(int(ruido.sum()), -1, dtype=np.int64)]),
+        "conf": np.concatenate([conf.astype(np.float64), np.zeros(int(ruido.sum()))])}))
     log.info("e03: %d textos (muestra %d), k=%d, micro-clusters usados=%d, conf mediana=%.3f",
              len(h), len(s), k, len(np.unique(lab)), float(np.median(conf)))

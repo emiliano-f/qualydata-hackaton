@@ -17,11 +17,17 @@ mas me mi muy no nos o para pero por que se si sin su sus te todo todos un una u
 """.split())
 
 # Semillas: se amplían en H3 con herramientas/entrenar.py (n-gramas que aparecen en >=3 narrativas)
-ACUERDO = ["tal cual", "exacto", "totalmente", "coincido", "asi es", "posta", "obvio", "ni hablar",
-           "100", "eso", "clarisimo", "la verdad"]
+# Observado en práctica (respuestas cortas que acompañan al padre); se matchean con tolerancia a typos
+ACUERDO = ["tal cual", "exacto", "totalmente", "coincido", "asi es", "es asi", "ni mas ni menos",
+           "lo mismo digo", "100 de acuerdo", "de acuerdo", "totalmente de acuerdo", "coincido totalmente",
+           "tremendo pero cierto", "clarisimo", "eso mismo pienso", "eso", "posta", "obvio", "ni hablar"]
 DESACUERDO = ["mentira", "falso", "fake", "verso", "chamuyo", "nada que ver", "no es asi", "cualquiera",
               "inventan", "desmintio", "sin pruebas", "trucho", "no es cierto", "dejen de", "no hubo",
               "nadie va a"]
+
+# Negación genérica: solo para ORIENTAR bandos agregando miles de comentarios, no por comentario
+NEGACION = ["no", "falso", "mentira", "nada que ver", "verso", "fake", "nadie", "nunca", "jamas", "tampoco",
+            "sin pruebas", "desmintio", "chamuyo", "trucho", "inventan", "cualquiera"]
 
 _RE_ENTIDADES = re.compile(r"@\w+|#\w+|https?://\S+|www\.\S+")
 _RE_NO_ALNUM = re.compile(r"[^a-z0-9\s]")
