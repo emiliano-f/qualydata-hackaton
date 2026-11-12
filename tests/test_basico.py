@@ -186,6 +186,22 @@ def test_llm_cache_y_modo():
         assert llm.chat("prompt que falla") is None
         c.resolver_modo_llm()
         assert c.modo_llm == "degradado" and c.fallas_llm == 1
+        # sin clave + caché vacío: la respuesta no estaba -> degradado (no "desde_cache" de mentira)
+        os.environ.pop("LLM_API_KEY")
+        c = Costo({}, "x")
+        llm = LLM(cfg, c, "set_vacio")
+        assert llm.chat("prompt sin cachear") is None
+        assert c.faltas_cache == 1
+        c.resolver_modo_llm()
+        assert c.modo_llm == "degradado"
+        assert any("no estaban en caché" in n for n in c.notas)
+        # caché parcial (un acierto + una falta) -> degradado igual
+        c = Costo({}, "x")
+        llm = LLM(cfg, c, "set")
+        assert llm.chat(prompt) == "OK"                # archivo escrito arriba
+        assert llm.chat("prompt sin cachear") is None
+        c.resolver_modo_llm()
+        assert c.modo_llm == "degradado" and c.aciertos_cache == 1 and c.faltas_cache == 1
     finally:
         if clave is not None:
             os.environ["LLM_API_KEY"] = clave

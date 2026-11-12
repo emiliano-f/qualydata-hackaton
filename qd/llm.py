@@ -106,6 +106,8 @@ class LLM:
                 self.costo.registrar_llm(*self._uso_tokens(d.get("uso") or {}), desde_cache=True)
             return d["texto"]
         if self.degradado or self.tokens >= self.tope:
+            if self.costo:
+                self.costo.faltas_cache += 1  # respuesta pedida que no estaba en caché
             return None
         cuerpo = {"model": self.modelo, "temperature": 0, "max_tokens": max_tokens,
                   "messages": [{"role": "system", "content": SISTEMA}, {"role": "user", "content": prompt}]}

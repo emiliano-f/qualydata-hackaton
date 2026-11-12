@@ -57,6 +57,7 @@ class Costo:
         self.llamadas = 0            # llamadas de red al LLM
         self.aciertos_cache = 0
         self.fallas_llm = 0          # llamadas de red fallidas (incl. reintentos agotados)
+        self.faltas_cache = 0        # respuestas pedidas que no estaban en caché (sin clave / degradado)
         self.llm_usado = False       # se instanció algún LLM por API
         self.modo_llm = "apagado"
         self.notas = []
@@ -85,13 +86,16 @@ class Costo:
 
     def resolver_modo_llm(self) -> None:
         """modo_llm ∈ {apagado, degradado, desde_cache, completo}: apagado = no se instanció LLM;
-        degradado = hubo modo degradado o alguna llamada de red falló; desde_cache = todas las
-        respuestas vinieron del caché (0 llamadas de red); completo = resto."""
+        degradado = alguna llamada de red falló o alguna respuesta pedida no estaba en caché;
+        desde_cache = todas vinieron del caché (0 llamadas, >= 1 acierto); completo = resto."""
         if not self.llm_usado:
             self.modo_llm = "apagado"
-        elif self.fallas_llm:
+        elif self.fallas_llm or self.faltas_cache:
             self.modo_llm = "degradado"
-        elif self.llamadas == 0:
+            if self.faltas_cache:
+                self.nota(f"sin LLM_API_KEY: {self.faltas_cache} respuestas no estaban en caché, "
+                          "se usó el respaldo determinista")
+        elif self.llamadas == 0 and self.aciertos_cache > 0:
             self.modo_llm = "desde_cache"
         else:
             self.modo_llm = "completo"
