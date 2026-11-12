@@ -42,6 +42,28 @@ def eventos(com: pd.DataFrame) -> pd.DataFrame:
     return ev[["cuenta_id", "publicacion_id", "ts", "h_esq", "n_tok"]].reset_index(drop=True)
 
 
+def cohesion(post: np.ndarray, ts: np.ndarray, acc: np.ndarray, miembros, delta: int) -> float:
+    """Fracción de los eventos de `miembros` (códigos de cuenta) que tienen OTRO evento de un
+    miembro en la misma publicación a |Δt| <= delta. Sirve sobre (P,T,A) observadas o sobre las
+    réplicas del nulo (P0,T0,A0): una campaña co-actúa; un grupo de hiperactivos genuinos no más
+    que por azar. Los eventos se deduplican por (cuenta, publicación) como en `eventos()`."""
+    sel = np.isin(acc, np.fromiter(miembros, dtype=acc.dtype))
+    if not sel.any():
+        return 0.0
+    m = pd.DataFrame({"a": acc[sel], "p": post[sel], "t": ts[sel]})
+    m = m.drop_duplicates(["a", "p"]).sort_values(["p", "t"], kind="stable")
+    pp, tt = m["p"].to_numpy(), m["t"].to_numpy()
+    junto = np.zeros(len(m), bool)
+    cortes = np.flatnonzero(np.diff(pp)) + 1
+    for ini, fin in zip(np.r_[0, cortes], np.r_[cortes, len(pp)]):
+        if fin - ini < 2:
+            continue
+        t = tt[ini:fin]
+        junto[ini:fin] = (np.searchsorted(t, t + delta, "right")
+                          - np.searchsorted(t, t - delta, "left")) >= 2
+    return float(junto.mean())
+
+
 def pares(post: np.ndarray, ts: np.ndarray, acc: np.ndarray, txt: np.ndarray, delta: int, bonus: float,
           n_acc: int, bloque: int = 5_000_000):
     """Pares co-actuantes, agregados. Entradas ordenadas por (post, ts); cada cuenta tiene un evento por
@@ -181,7 +203,7 @@ def correr(ctx) -> None:
         n_estr = len(np.unique(clave))
     else:
         n_estr = len(np.unique(estrato_post))
-    partes = []
+    partes, nulos_pta = [], []
     for _ in range(reps):
         if modo == "permuta":
             azar = np.lexsort((rng.random(len(P)), clave))
@@ -196,6 +218,7 @@ def correr(ctx) -> None:
                 sel = est_ev == e
                 P0[sel] = rng.choice(posts_e, size=int(sel.sum()), p=tam[posts_e] / tam[posts_e].sum())
             T0, A0, X0 = ini_post[P0] + demora, A, X
+        nulos_pta.append((P0, T0, A0))
         nulo = pd.DataFrame({"p": P0, "t": T0, "a": A0, "x": X0}).drop_duplicates(["a", "p"])
         nulo = nulo.sort_values(["p", "t"], kind="stable")
         k0, n0, s0, _ = pares(nulo["p"].to_numpy(), nulo["t"].to_numpy(), nulo["a"].to_numpy(),
@@ -268,12 +291,16 @@ def correr(ctx) -> None:
         H.remove_edges_from(quitar)
         H.remove_nodes_from([n for n in list(H.nodes) if H.degree(n) == 0])
         dens_min = float(obtener(cfg, "coord.densidad_min", 0.1))
+        # Cohesión relativa al nulo: entra un grupo solo si sus miembros co-actúan (misma publicación,
+        # |Δt| <= delta_s) más que esas mismas cuentas bajo las réplicas del nulo. Una campaña coordina
+        # el QUÉ y el CUÁNDO; un grupo de genuinos hiperactivos coincide por volumen, no por elección.
+        cohesion_min = float(obtener(cfg, "coord.cohesion_min", 0.0))
         # Actividad por cuenta: un grupo de hiperactivos coincide por estar en todos lados
         act = np.bincount(A, minlength=n_acc)
         q_act = float(obtener(cfg, "coord.max_actividad_q", 0.99))
         tope_act = np.quantile(act, q_act) if q_act < 1 else np.inf
-        descartados_act = 0
-        resumen, validas = [], []
+        descartados_act = descartados_coh = 0
+        resumen, resumen_coh, validas = [], [], []
         for comp in nx.connected_components(H):
             sub = H.subgraph(comp)
             # solo se parten componentes ralas (pueden ser dos operaciones pegadas); un bloque denso queda entero
@@ -291,11 +318,23 @@ def correr(ctx) -> None:
                 if med_act > tope_act:
                     descartados_act += 1
                 elif dens >= dens_min:
+                    if cohesion_min > 0:
+                        m = np.fromiter(c, dtype=np.int64)
+                        co = cohesion(P, T, A, m, delta)
+                        cn = float(np.mean([cohesion(p0, t0, a0, m, delta)
+                                            for p0, t0, a0 in nulos_pta])) if nulos_pta else 0.0
+                        resumen_coh.append((len(c), round(co, 2), round(cn, 2)))
+                        if co - cn < cohesion_min:
+                            descartados_coh += 1
+                            continue
                     validas.append(c)
         log.info("e08: poda por triángulos (soporte>=%.2f) %d -> %d aristas; comunidades (tamaño, densidad, "
                  "actividad mediana) %s; %d descartadas por actividad > p%g (%.0f publicaciones)", sop_min,
                  G.number_of_edges(), H.number_of_edges(), sorted(resumen, reverse=True)[:12], descartados_act,
                  100 * q_act, tope_act)
+        if cohesion_min > 0:
+            log.info("e08: cohesión por grupo candidato (n, obs, nulo) %s; %d descartadas por cohesión "
+                     "(exceso < %.2f)", sorted(resumen_coh, reverse=True), descartados_coh, cohesion_min)
         for i, c in enumerate(sorted(validas, key=len, reverse=True)):
             for nodo in c:
                 grupo[cuentas[nodo]] = f"g{i + 1:03d}"

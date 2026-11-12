@@ -245,6 +245,24 @@ def test_llm_truncado_y_reasoning():
             os.environ["LLM_API_KEY"] = clave
 
 
+def test_cohesion_filtro():
+    """O1: un grupo que co-actúa en ventana tiene exceso de cohesión vs el nulo; uno disperso no."""
+    import numpy as np
+    from qd.etapas.e08_coord import cohesion
+    # pubs 0-2: tres cuentas comentan juntas dentro de ±60s; pubs 3-8: un evento por publicación
+    post = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 4, 5, 6, 7, 8])
+    ts = np.array([0, 10, 20, 0, 10, 20, 0, 10, 20, 0, 0, 0, 0, 0, 0])
+    acc = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 3, 4, 5, 3, 4, 5])
+    g1, g2 = {0, 1, 2}, {3, 4, 5}
+    assert cohesion(post, ts, acc, g1, 60) == 1.0        # todos sus eventos tienen compañía
+    assert cohesion(post, ts, acc, g2, 60) == 0.0        # ninguno
+    # nulo: las etiquetas de g1 caen una por publicación -> exceso 1.0 (entra); g2 queda en 0 (sale)
+    acc_nulo = np.array([6, 7, 8, 6, 7, 8, 6, 7, 8, 0, 1, 2, 0, 1, 2])
+    exc1 = cohesion(post, ts, acc, g1, 60) - cohesion(post, ts, acc_nulo, g1, 60)
+    exc2 = cohesion(post, ts, acc, g2, 60) - cohesion(post, ts, acc_nulo, g2, 60)
+    assert exc1 >= 0.2 and exc2 < 0.2
+
+
 def test_consolidar_y_sets():
     import numpy as np
     from qd.config import aplicar_sets

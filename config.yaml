@@ -64,6 +64,8 @@ coord:
   densidad_min: 0.1      # densidad interna mínima del grupo (después de la poda)
   densidad_partir: 0.5   # componentes con densidad menor se parten con Louvain
   max_actividad_q: 0.97  # descarta grupos cuya actividad mediana supera este percentil de las cuentas (1.0 = apagado)
+  cohesion_min: 0.2      # exceso mínimo de cohesión vs el nulo (0 = apagado). Campañas y pedazos: >= 0.26 en
+                       # práctica y p10; grupos de genuinas hiperactivas: <= 0.16
   min_resp_par: 2        # respuestas mutuas entre dos cuentas que cuentan como evidencia
   peso_respuesta: 2.0    # cada respuesta mutua suma peso_respuesta * ε al score del par
   nulo: permuta          # permuta (práctica: +5 pts vs reasigna) | reasigna (lugares fijos, se baraja la cuenta) | reasigna (se muda el evento)
