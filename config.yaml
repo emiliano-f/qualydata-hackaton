@@ -11,24 +11,42 @@ embed:
   prefijo: "query: "
   max_seq_length: 96
   batch: 256
+  cache_dir: cache/emb   # caché global por modelo (claves = h_texto)
 
 micro:
   por_dia: 3000          # textos únicos por día en la muestra de ajuste
-  k_factor: 1.0          # k = clip(k_factor*sqrt(n_unicos)/2, k_min, k_max)
+  k_factor: 2.0          # k = clip(k_factor*sqrt(n_unicos)/2, k_min, k_max); más micro = más puros
   k_min: 80
-  k_max: 250
+  k_max: 400
   semilla: 42
 
 narr:
   q_T: 0.60              # cuantil de la distancia al vecino más cercano entre centroides
-  delta_gris: 0.06
-  r_resp: 0.15
+  delta_gris: 0.06       # zona gris para el LLM (todavía no)
+  gamma_resp: 2.0        # resolución de Louvain en la fusión por respuestas (más alto = más narrativas)
+  min_resp: 3            # mínimo de respuestas cruzadas para fusionar
 
 ruido:
-  tau: 0.75
+  tau: 0.75              # e05 (clasificador), todavía no
+  max_tok: 2             # textos de <= N tokens que no son respuesta ni fueron respondidos
+  q_rel: 0.15            # micro-cluster ruido si (%recibe + %es_respuesta) <= q_rel * mediana
+  alfa: 0.01             # e02b: texto frecuente sin respuestas es ruido si (1-p)^n <= alfa
+  knn_k: 10              # e02b: vecinos para decidir textos raros
+  knn_umbral: 0.5
+
+postura:
+  pureza_min: 0.5        # micro-clusters con muchas respuestas internas (mezclados) no toman bando
+  voto_ref: 3.0          # refutación explícita (falso, mentira, no es cierto...): en práctica nunca falló
+  ref_min: 0.02
+  voto_neg: 1.0          # más negación -> rechaza (acertó 9/13 en práctica)
+  voto_coord: 2.0        # más comentarios coordinados -> apoya (solo si la diferencia relativa es >= coord_rel)
+  coord_rel: 0.3
+  voto_temprano: 0.0     # aparecer primero -> apoya (falló en la emergente B4: apagado)
+  llm_local: false       # LLM local chico como respaldo (en práctica no ayudó: preferir llm: por API)
 
 resp:
-  corta: 5
+  corta: 3               # en práctica: <=3 tokens acompañan al padre el 100%; largas invierten
+  heredar_todas: true    # toda respuesta hereda la narrativa del padre (100% en práctica)
 
 origen:
   k: 1
@@ -36,24 +54,53 @@ origen:
   ventana_h: 6
 
 coord:
-  delta_s: 180
-  alfa: 0.01
-  gamma: 1.0
+  delta_s: 450           # ventana de co-acción (barrido en práctica: 300 -> 47.2, 450 -> 48.8, 600 -> 48.4)
+  lift_min: 3.0          # par coordinado si score_obs / (esperado_nulo + ε) >= lift_min
+  eps_factor: 1.0        # ε = eps_factor * peso mediano de una co-ocurrencia
+  gamma: 1.0             # resolución de Louvain
   min_pub: 2
+  min_size: 5            # cliques chicas aparecen por azar; las campañas de práctica tienen 25-60 cuentas
+  soporte_min: 0.3       # poda: fracción de vecinos en común para conservar una arista
+  densidad_min: 0.1      # densidad interna mínima del grupo (después de la poda)
+  densidad_partir: 0.5   # componentes con densidad menor se parten con Louvain
+  max_actividad_q: 0.97  # descarta grupos cuya actividad mediana supera este percentil de las cuentas (1.0 = apagado)
+  min_resp_par: 2        # respuestas mutuas entre dos cuentas que cuentan como evidencia
+  peso_respuesta: 2.0    # cada respuesta mutua suma peso_respuesta * ε al score del par
+  nulo: permuta          # permuta (práctica: +5 pts vs reasigna) | reasigna (lugares fijos, se baraja la cuenta) | reasigna (se muda el evento)
+  nulo_demoras: [600, 3600, 21600]  # bandas de demora desde el inicio de la publicación (permuta)
+  nulo_reps: 3           # réplicas del modelo nulo
+  nulo_dias: 3           # estrato: misma fuente y período de N días
+  hashtag_max_frac: 0.01 # hashtag "raro" si lo usan <= 1% de las cuentas
+  peso_hashtag: 2.0
+  bonus_texto: 1.0       # peso extra si comparten texto esqueleto
+  min_tok_texto: 6
   semilla: 42
 
-llm:
-  activo: true           # además requiere LLM_API_KEY; sin clave corre en modo sin IA
+llm:                     # API compatible con OpenAI. Requiere la variable LLM_API_KEY; sin clave, modo sin IA.
+  activo: true
   base_url: https://generativelanguage.googleapis.com/v1beta/openai/
-  modelo: gemini-2.5-flash-lite
-  paralelo: 16
-  timeout_s: 30
+  modelo: "gemini-3.8-flash"             # completar con el modelo del proveedor elegido
+  orientar: true         # 2 llamadas por narrativa (orientación de bandos)
+  titulos: true          # 1 llamada por narrativa (título y frases clave)
+  timeout_s: 60
+  reintentos: 4          # 429/503 (demanda alta) se reintentan con backoff 2, 4, 8, 16 s
+  max_fallas: 4          # fallas seguidas -> modo degradado (votos y TF-IDF)
   tope_tokens: 2000000
-  max_pares: 60
-  max_lote: 20000
+  cache_dir: cache/llm   # se commitea cache/llm/final/ para reproducir sin clave
+
+llm_local:               # LLM chico en CPU, sin clave ni costo; solo lee logits A/B (no genera) para orientar
+  modelo: Qwen/Qwen2.5-1.5B-Instruct
+  margen: 0.1            # usa la decisión del LLM si |p - 0.5| >= margen; si no, los votos
+  ejemplos: 8            # comentarios por bando en el prompt
+  titulos: false         # además, títulos de narrativa generados (unas 20 generaciones cortas)
+  cache_dir: cache/llm_local
+
+reporte:
+  activo: true
+  dir: reportes
 
 # Valores de práctica (llenar en H1). El validador avisa si el set final cae fuera de [0.5x, 2x].
 sanidad:
-  pct_ruido: null
-  n_narrativas: null
-  pct_coord: null
+  pct_ruido: 18.9
+  n_narrativas: 13
+  pct_coord: 0.72

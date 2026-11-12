@@ -22,13 +22,15 @@ from qd.db import abrir_almacen
 ETAPAS = [
     "e01_ingesta",
     "e02_embed",
+    "e02b_ruido",     # ruido por texto antes de los micro-clusters
     "e03_micro",
     "e04_narrativas",
     # "e05_ruido",
+    "e08_coord",      # antes de e06: la orientación de bandos usa las cuentas coordinadas
     "e06_postura",
     "e07_origen",
-    # "e08_coord",
     "e09_exporta",
+    "e10_reporte",    # reportes/<set>.html para la demo (no va en entrega/)
 ]
 
 log = logging.getLogger("qd")
@@ -83,7 +85,8 @@ def main(argv=None) -> int:
     db = abrir_almacen(a.almacen, work, cfg.get("almacen", {}))
     desc = "DuckDB local + Parquet particionado por día" if db.motor == "duckdb" else "pandas en memoria (prueba)"
     costo = Costo(precios, desc)
-    sin_llm = a.sin_llm or not os.environ.get("LLM_API_KEY") or not qcfg.obtener(cfg, "llm.activo", True)
+    sin_llm = (a.sin_llm or not os.environ.get("LLM_API_KEY") or not qcfg.obtener(cfg, "llm.activo", True)
+               or not str(qcfg.obtener(cfg, "llm.modelo", "") or ""))
     costo.modo_llm = "apagado" if sin_llm else "completo"
     ctx = Contexto(a.datos, a.salida, work, cfg, db, costo, sin_llm=sin_llm,
                    embed=a.embed or qcfg.obtener(cfg, "embed.motor", "e5"))
