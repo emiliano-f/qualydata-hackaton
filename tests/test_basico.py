@@ -69,6 +69,91 @@ def test_exporta_blindajes():
     assert set(k.index) == {"u1", "u2", "u3", "u9"}
 
 
+def test_origen_robusto():
+    from qd.etapas.e07_origen import origen_robusto
+    import numpy as np
+    ts = np.array([0, 50_000, 100_000, 100_100, 100_200, 100_300])   # outlier temprano + ráfaga real
+    assert origen_robusto(ts, k=1, m=3, ventana_s=3600) == 100_000
+    assert origen_robusto(ts, k=2, m=3, ventana_s=3600) == 100_100
+    assert origen_robusto(np.array([5]), k=3, m=3, ventana_s=10) == 5            # sin ráfaga: k-ésimo acotado
+
+
+def test_herencia_respuestas():
+    from qd.etapas.e06_postura import es_acuerdo, heredar_respuestas
+    assert es_acuerdo("tal cual", 3) and es_acuerdo("ni mas ni mneos", 3) and es_acuerdo("exatco trabajo y futuro", 3)
+    assert not es_acuerdo("la obra avanza lento pero avanza", 3)
+    df = pd.DataFrame({"comentario_id": ["p", "a", "b", "c"], "ts": [0, 1, 2, 3],
+                       "respuesta_a": ["", "p", "p", "b"], "narrativa": ["n1", "n2", "n3", "n4"],
+                       "postura": ["apoya"] * 4, "acuerdo": [False, True, False, True],
+                       "es_ruido": [True, False, False, False]})
+    out = heredar_respuestas(df).set_index("comentario_id")
+    assert list(out.loc[["a", "b", "c"], "narrativa"]) == ["n1", "n1", "n1"]
+    assert list(out.loc[["a", "b", "c"], "postura"]) == ["apoya", "rechaza", "rechaza"]   # b invierte, c acompaña a b
+    assert not out.loc["p", "es_ruido"]                                                  # nadie le responde al ruido
+    assert not out.loc["p", "heredada"] and out.loc["c", "heredada"]
+
+
+def test_biparticion_y_pares():
+    import numpy as np
+    from qd.etapas.e06_postura import biparticion
+    from qd.etapas.e08_coord import pares
+    W = np.array([[0, 5, 0, 4], [5, 0, 3, 0], [0, 3, 0, 6], [4, 0, 6, 0]], dtype=float)  # ciclo par: 0,2 vs 1,3
+    x = biparticion(W)
+    assert x[0] == x[2] and x[1] == x[3] and x[0] != x[1]
+    post = np.array([0, 0, 0, 1, 1]); ts = np.array([0, 100, 1000, 0, 50])
+    acc = np.array([0, 1, 2, 0, 1]); txt = np.zeros(5, dtype=np.int64)
+    k, n, s, _ = pares(post, ts, acc, txt, delta=300, bonus=1.0, n_acc=3)
+    assert list(k) == [1] and list(n) == [2]          # solo (0,1), en 2 publicaciones
+
+
+def test_ruido_knn():
+    import numpy as np
+    from qd.etapas.e02b_ruido import votar_knn
+    Xd = np.array([[1, 0], [0.98, 0.2], [0, 1], [0.2, 0.98]], dtype=np.float32)
+    Xd /= np.linalg.norm(Xd, axis=1, keepdims=True)
+    yd = np.array([1.0, 1.0, 0.0, 0.0])                 # dos plantillas de ruido, dos textos de narrativa
+    Xu = np.array([[0.99, 0.1], [0.1, 0.99]], dtype=np.float32)
+    p = votar_knn(Xu / np.linalg.norm(Xu, axis=1, keepdims=True), Xd, yd, k=2)
+    assert p[0] > 0.9 and p[1] < 0.1
+
+
+def test_orientar_votos():
+    import numpy as np
+    from qd.etapas.e06_postura import orientar
+    votos = {"neg": 1.0, "coord": 2.0, "temprano": 0.0, "coord_rel": 0.3}
+    n = 400
+    lado = np.r_[np.ones(n), -np.ones(n)]
+    neg = np.r_[np.zeros(n), np.ones(n) * (np.arange(n) < 120)]          # lado -1 niega más
+    coord = np.r_[np.arange(n) < 40, np.arange(n) < 20]                    # lado +1 tiene el doble de coordinadas
+    b = pd.DataFrame({"lado": lado, "neg": neg, "coord": coord, "ts": np.arange(2 * n), "refuta": False})
+    rech, det = orientar(b, votos)
+    assert rech == -1                                                       # neg y coord coinciden
+    b2 = b.assign(neg=np.r_[np.ones(n) * (np.arange(n) < 120), np.zeros(n)])  # neg contradice a coord
+    assert orientar(b2, votos)[0] == -1                                     # coord (peso 2, dif. relativa 0.5) gana
+    b3 = b2.assign(coord=np.r_[np.arange(n) < 21, np.arange(n) < 20])      # dif. relativa chica: coord no vota
+    assert orientar(b3, votos)[0] == 1
+
+
+def test_llm_parseo():
+    from qd.llm import LLM
+    assert LLM._letra("A") == "A" and LLM._letra(" b.") == "B" and LLM._letra("Respuesta: B") == "B"
+    assert LLM._letra("ninguno") is None and LLM._letra(None) is None
+    assert LLM._rechaza("NARRATIVA: la obra está parada\nRECHAZA: B") == ("B", "la obra está parada")
+    assert LLM._rechaza("**NARRATIVA:** «x»\n**RECHAZA:** a")[0] == "A"
+
+
+def test_consolidar_y_sets():
+    import numpy as np
+    from qd.config import aplicar_sets
+    from qd.etapas.e04_narrativas import consolidar
+    C = np.array([[1, 0], [0.99, 0.141], [0, 1], [0.141, 0.99]], dtype=np.float32)
+    C /= np.linalg.norm(C, axis=1, keepdims=True)
+    g, _, _ = consolidar(C, 0.9)
+    assert g[0] == g[1] and g[2] == g[3] and g[0] != g[2]
+    cfg = aplicar_sets({"narr": {"q_T": 0.6}}, ["narr.q_T=0.4", "llm.activo=false"])
+    assert cfg["narr"]["q_T"] == 0.4 and cfg["llm"]["activo"] is False
+
+
 if __name__ == "__main__":
     for nombre, f in list(globals().items()):
         if nombre.startswith("test_"):

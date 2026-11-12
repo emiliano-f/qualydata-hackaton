@@ -42,6 +42,7 @@ def main():
     ap.add_argument("--desde", default="e04")
     ap.add_argument("--fijo", action="append", default=[], help="clave=valor fijo para todas las corridas")
     ap.add_argument("--registro", type=Path, default=Path("experimentos.csv"))
+    ap.add_argument("--sin-llm", action="store_true", help="(el barrido ya corre siempre sin LLM)")
     a = ap.parse_args()
 
     filas = []
