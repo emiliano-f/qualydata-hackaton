@@ -393,6 +393,30 @@ def test_costo_extras():
     assert d2["almacenamiento_mb"] is None                       # sin medición -> null
 
 
+def test_evidencia_grupos():
+    """e10: evidencia por grupo — posts compartidos a ventana, respuestas mutuas y hashtags raros."""
+    import numpy as np
+    from qd.etapas.e10_reporte import hashtags_raros, mapa_hashtags, posts_compartidos, respuestas_mutuas
+
+    # g: dos miembros (u1, u2) co-actúan en p1 (<=10 s), u3 comenta lejos y solo en p2
+    g = pd.DataFrame({"comentario_id": ["c1", "c2", "c3", "c4", "c5"],
+                      "cuenta_id": ["u1", "u2", "u1", "u3", "u2"],
+                      "publicacion_id": ["p1", "p1", "p2", "p2", "p3"],
+                      "ts": [100, 105, 500, 900, 1000],
+                      "respuesta_a": ["", "c1", "", "", "c3"],
+                      "texto": ["#litio si", "otro #litio #agua", "#agua raro", "sin tags", "#litio"]})
+    assert posts_compartidos(g, 10) == 1        # solo p1 tiene >=2 miembros a <=10 s
+    assert respuestas_mutuas(g) == 2            # c2 (u2->c1 de u1) y c5 (u2->c3 de u1)
+    uso_g = mapa_hashtags(g[["cuenta_id", "texto"]])
+    com = pd.DataFrame({"cuenta_id": ["u1", "u2", "u3", "u4", "u5"],
+                        "texto": ["#litio si", "#litio #agua", "#agua raro", "#litio otro", "#litio mas"]})
+    uso_t = mapa_hashtags(com)
+    # #litio lo usan u1,u2,u3 en el grupo y 4 cuentas en total; #agua: u2,u3 grupo, 2 total
+    raros = hashtags_raros(uso_g, uso_t, umbral=3)
+    assert raros == ["#agua"]                  # #litio supera el umbral (4 > 3), #agua queda
+    assert hashtags_raros(uso_g, uso_t, umbral=10) == ["#agua", "#litio"]
+
+
 if __name__ == "__main__":
     for nombre, f in list(globals().items()):
         if nombre.startswith("test_"):
