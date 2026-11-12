@@ -233,6 +233,7 @@ function dibujar() {{
   const L1 = base();
   L1.yaxis.title = {{ text:'comentarios cada 6 h' }}; L1.hovermode = 'x unified'; L1.showlegend = true;
   L1.legend = {{ orientation:'h', y:-0.18, font:{{ color:css('--text-primary') }} }}; L1.margin.b = 110;
+  L1.margin.t = 40;  /* las anotaciones de origen (y=1.0, yanchor bottom) viven en el margen superior */
   L1.shapes = D.origenes.map(o => ({{ type:'line', x0:o.x, x1:o.x, yref:'paper', y0:0, y1:1,
     line:{{ dash:'dash', width:2.5, color: o.i >= 0 ? css('--series-' + (o.i + 1)) : css('--otras') }} }}));
   L1.annotations = D.origenes.map((o, k) => ({{ x:o.x, yref:'paper', y:1.0 - 0.08 * (k % 7),

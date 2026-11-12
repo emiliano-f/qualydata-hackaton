@@ -110,6 +110,8 @@ class Costo:
 
     def a_dict(self) -> dict:
         self.resolver_modo_llm()
+        if self.modo_llm == "apagado":
+            self.nota("sin IA en esta corrida")
         usd = self.usd()
         n = max(self.comentarios, 1)
         return {
@@ -120,7 +122,7 @@ class Costo:
             "usd_por_mil_comentarios": round(usd / n * 1000, 6),
             "hardware": describir_hardware(),
             "almacenamiento": self.almacenamiento,
-            "notas": "; ".join(self.notas) or ("sin IA" if self.modo_llm == "apagado" else ""),
+            "notas": "; ".join(self.notas),
             # Extras (el evaluador los ignora; sirven al jurado)
             "desglose_segundos": self.etapas,
             "llamadas_llm": self.llamadas,
