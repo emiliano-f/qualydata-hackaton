@@ -74,28 +74,38 @@ que orientan la postura. `e10_reporte` escribe el HTML. No hay `e05`.
 - Embeddings en `cache/emb/` (claves = hash del texto normalizado): se calculan una vez por texto único y se
   reutilizan entre corridas y entre sets.
 
-## Cómo escala a millones de comentarios por día
+## Costo y escala
 
-1. **Ingesta:** cola (Kafka/PubSub) → tabla particionada por día en ClickHouse o BigQuery (las mismas consultas).
-2. **Embeddings:** solo textos nuevos (la deduplicación ya baja el volumen ~3×); micro-lotes en GPU (~3.000 textos/s).
-3. **Narrativas en línea:** cada comentario nuevo se asigna al centroide más cercano (un producto punto); una vez por
-   día se re-agrupa solo lo que quedó lejos de todo, que es donde aparecen las narrativas nuevas.
-4. **Coordinación incremental:** la co-acción es un join por `publicacion_id` con rango de tiempo — se calcula por
-   ventana deslizante de 24–48 h y se acumulan los pares; el nulo se recalcula por partición.
-5. **IA:** su costo depende de la cantidad de **narrativas**, no de comentarios: no crece con el volumen.
+Medido en esta notebook (12 núcleos, 15 GB, sin GPU, sin IA): en frío se recalculan los embeddings
+e5 (domina el tiempo); en caliente se reutiliza el caché por texto único. Son los `segundos`,
+`ram_pico_gb` y `almacenamiento_mb` del `costo.json` de cada corrida.
 
-**Medido en esta notebook** (12 núcleos, 15 GB, sin GPU, sin IA):
+| Set | Comentarios | s frío | s caliente | RAM pico (GB) | DuckDB (MB) | Parquet (MB) | Entrada (MB) | USD cómputo/mil | USD IA |
+|---|---|---|---|---|---|---|---|---|---|
+| Práctica | 200.000 (14 días) | 570 | 31 | 3,0 | 49 | 14 | 5 | 0,0005 | 0 |
+| Pseudo-final | 98.312 (10 días) | 410 | 20 | 2,4 | 23 | 7 | 3 | 0,0008 | 0 |
+| ×5 de práctica (`herramientas/escala.py`, **TF-IDF**) | 1.000.000 (70 días) | — | 135 | 7,8 | 206 | 71 | 26 | 0,00003 | 0 |
+| Final | [__] | [__] | [__] | [__] | [__] | [__] | [__] | [__] | [__] |
 
-| Set | Comentarios | Tiempo (caché de embeddings caliente) | RSS máx |
-|---|---|---|---|
-| Práctica | 200.000 (14 días) | 36–41 s | 1,8 GB |
-| Pseudo-final | 98.312 (10 días) | 20–23 s | 1,2 GB |
-| Datos sucios (`make test-sucio`) | — | 59 s | 3,0 GB |
+La RAM y el almacenamiento son los de la corrida en frío. El USD de cómputo usa `usd_hora_cpu` de `precios.yaml`
+(AWS EC2 c6i.4xlarge on-demand, USD 0,68/h). En la fila ×5, cada réplica repite los textos de práctica con ids y
+fechas corridas, así que no agrega textos únicos y los embeddings no crecen. Mide el resto del pipeline: `e08` se
+lleva 81 de los 135 s. La `proyeccion_1M_por_dia` de `costo.json` es una extrapolación lineal, no una medición. ×10
+no se corrió: con 7,8 GB en ×5 no entraba en los 15 GB de esta máquina.
 
-En frío, `e02_embed` (e5 en CPU sobre ~58k textos únicos) tarda ≈8 min y domina todo el costo. El resto procesa unos
-5.000 comentarios/s. El próximo cuello de botella es `e08`: los pares de co-acción crecen con el cuadrado de los
-comentarios que caen en la misma ventana de una publicación viral. Por eso, en producción va por ventanas deslizantes
-(punto 4).
+DuckDB + Parquet: embebido, columnar y cero operación; Parquet es formato abierto particionado por
+día. Para millones por día: micro-batch en la ingesta, el caché de embeddings deduplica por texto
+único (~3× menos volumen), la coordinación se calcula solo dentro de cada publicación y ventana de
+tiempo (no todos contra todos; en publicaciones virales los pares crecen al cuadrado) y el Parquet
+pasa a almacenamiento de objetos.
+
+`costo.json` se arma solo en cada corrida: segundos por etapa, hardware, tokens y USD de IA. Los
+tokens incluyen el razonamiento oculto que factura el proveedor, y las respuestas que salen del
+caché cuentan lo que costó producirlas, así una re-corrida no declara costo cero. Con IA son unas
+40 llamadas y ~22k tokens, y el `usd_por_mil_comentarios` queda en milésimas de centavo; su costo
+depende de la cantidad de **narrativas**, no de comentarios. Claves extra: `ram_pico_gb`,
+`almacenamiento_mb` (duckdb/parquet/entrada), `comentarios_por_segundo`,
+`segundos_por_mil_comentarios`, `usd_computo_por_mil`, `proyeccion_1M_por_dia`.
 
 **e5 vs TF-IDF de caracteres.** El respaldo TF-IDF (3–5 gramas + SVD 256) calcula los embeddings en 16 s y dio un puntaje
 equivalente en práctica (B-cubed 0,996 contra 0,980) y en el pseudo-final (0,969 contra 0,962). Igual mantenemos
@@ -103,13 +113,6 @@ e5 como motor principal: los datos de práctica salen de plantillas con variacio
 captura. Un set con más paráfrasis (mismo significado con otras palabras) lo agrupa e5 y no TF-IDF. TF-IDF queda como
 alternativa explícita (`--embed tfidf` o `embed.motor: tfidf`): si el modelo no carga, el pipeline corta con error
 en vez de cambiar de motor a escondidas.
-
-## Costo (ver `entrega/costo.json`)
-
-`costo.json` se arma solo en cada corrida: segundos por etapa, hardware, tokens y USD de IA. Los tokens incluyen el
-razonamiento oculto que factura el proveedor, y las respuestas que salen del caché cuentan lo que costó producirlas,
-así una re-corrida no declara costo cero. Sin IA, el costo es el tiempo de CPU de la tabla de arriba. Con IA son unas
-40 llamadas y ~22k tokens, y el `usd_por_mil_comentarios` queda en milésimas de centavo.
 
 ## Resultados en el set de práctica (puntaje automático oficial)
 
