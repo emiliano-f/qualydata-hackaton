@@ -53,7 +53,7 @@ def main():
         rc = pipeline.main(["--datos", str(a.datos), "--salida", str(salida), "--desde", a.desde,
                             "--no-validar", "--sin-llm"] + sum([["--set", s] for s in sets], []))
         if rc != 0:
-            print(f"{a.param}={val}: el pipeline falló (rc={rc}), ver {salida}/pipeline.log")
+            print(f"{a.param}={val}: el pipeline falló (rc={rc}), ver work/{a.datos.name}/pipeline.log")
             continue
         r = puntuar_salida(a.datos / "verdad", salida)
         r.update({"param": a.param, "valor": val, "seg": round(time.perf_counter() - t, 1)})

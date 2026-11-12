@@ -49,12 +49,13 @@ class Contexto:
     extra: dict = field(default_factory=dict)
 
 
-def configurar_log(salida: Path) -> None:
-    salida.mkdir(parents=True, exist_ok=True)
+def configurar_log(destino: Path) -> None:
+    # work/<set>/, no --salida: la entrega solo lleva los 3 CSV y costo.json
+    destino.mkdir(parents=True, exist_ok=True)
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(message)s", "%H:%M:%S")
     log.setLevel(logging.INFO)
     log.handlers.clear()
-    for h in (logging.StreamHandler(sys.stderr), logging.FileHandler(salida / "pipeline.log", mode="w",
+    for h in (logging.StreamHandler(sys.stderr), logging.FileHandler(destino / "pipeline.log", mode="w",
                                                                      encoding="utf-8")):
         h.setFormatter(fmt)
         log.addHandler(h)
@@ -76,11 +77,11 @@ def main(argv=None) -> int:
                     help="pisa config.yaml, ej. --set narr.q_T=0.5 (repetible)")
     a = ap.parse_args(argv)
 
-    configurar_log(a.salida)
-    cfg = qcfg.aplicar_sets(qcfg.cargar(a.config), a.sets)
-    precios = qcfg.cargar(a.precios) if a.precios.exists() else {}
     work = a.work or Path("work") / a.datos.name
     work.mkdir(parents=True, exist_ok=True)
+    configurar_log(work)
+    cfg = qcfg.aplicar_sets(qcfg.cargar(a.config), a.sets)
+    precios = qcfg.cargar(a.precios) if a.precios.exists() else {}
 
     db = abrir_almacen(a.almacen, work, cfg.get("almacen", {}))
     desc = "DuckDB local + Parquet particionado por día" if db.motor == "duckdb" else "pandas en memoria (prueba)"
