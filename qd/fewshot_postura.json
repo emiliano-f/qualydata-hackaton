@@ -1,0 +1,47 @@
+[
+  {
+    "narrativa": "La mina se queda con el agua del pueblo",
+    "apoyan": [
+      "Y bueno, nos dejan sin agua para que la minera esa saque el litio, lo digo en serio.",
+      "ojo, en villa tolar ya no sale agua de la canilla y la minera usa millones de litros por día. 💯",
+      "Y bueno, sin vegas no hay ganado, y el bombeo las esta secando. Lamentable.",
+      "Escuchen: ya cortan el agua a la tarde en la zona, mientras la mina trabaja las 24 horas. Abran los ojos."
+    ],
+    "rechazan": [
+      "a ver, el problema del agua en el pueblo es la red vieja, no la minera. abran los ojos.",
+      "mirá, el agua se corta en la zona desde hace veinte años, mucho antes de la mina. así estamos.",
+      "La verdad que la salmuera no es agua potable, dejen de mezclar las cosas eh. Abran los ojos.",
+      "che, la salmuera no es agua potable, dejen de mezclar las cosas, posta. 👏"
+    ]
+  },
+  {
+    "narrativa": "La obra del hospital está parada y la plata desapareció",
+    "apoyan": [
+      "Escuchen: pagaron el nosocomio tres veces y sigue siendo un esqueleto eh. Es asi.",
+      "Se robaron la giuta de el nosocomio nuevo, no hay otra explicacion. Verguenza.",
+      "Lo que nadie dice es que ni un ladrillo pusieron en un año en el hospital.",
+      "Ojo, se robaron la plata de el nosocomio nuevo, no hay otra explicación."
+    ],
+    "rechazan": [
+      "che, los fondos son nacionales y se atrasaron, no se robo nadie nada. verguenza.",
+      "Ojo, ya retomaron la obra, pasen y miren. Es así.",
+      "Escuchen: la obra se frenó por falta de materiales, no por robo, te juro. Así estamos.",
+      "mirá, la obra se frenó por fatla de materiales, no por afano."
+    ]
+  },
+  {
+    "narrativa": "Las empresas cobran subsidios y el servicio es pésimo",
+    "apoyan": [
+      "Les dan subsidois millonarios a las empresas y el servicio es un desastre. 🙄",
+      "Que muestern en q gastan los subsidios. Lamentable.",
+      "Para mi bondis sin aire, rotos y sucios, pero los subsidios los cobran igual. Despierten.",
+      "te digo algo: cobran subsidios y los bondis se caen a pedazos. despierten."
+    ],
+    "rechazan": [
+      "para mí sin subsidios el boletoo costaría el doble.",
+      "Mira, las empresas estan quebradas, posta.",
+      "sinceramente las empresas estan quebradas, los subsidios apenas alcanzan para los sueldos. despierten.",
+      "Lo que nadiee dice es que las empresas están quebradas, los subsidios apenas alcanzan para los sueldos. 💯"
+    ]
+  }
+]

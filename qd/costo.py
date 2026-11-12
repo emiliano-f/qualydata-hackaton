@@ -53,6 +53,7 @@ class Costo:
         self.almacenamiento = almacenamiento
         self.tok_in = 0
         self.tok_out = 0
+        self.tok_local = 0
         self.llamadas = 0
         self.aciertos_cache = 0
         self.modo_llm = "apagado"
@@ -67,10 +68,13 @@ class Costo:
         finally:
             self.etapas[nombre] = round(time.perf_counter() - t, 2)
 
-    def registrar_llm(self, tok_in: int, tok_out: int, desde_cache: bool) -> None:
-        """Solo se cobran los tokens que no salieron de la caché."""
+    def registrar_llm(self, tok_in: int, tok_out: int, desde_cache: bool, local: bool = False) -> None:
+        """Solo se cobran los tokens que no salieron de la caché. Los de un LLM local cuentan pero cuestan 0."""
         if desde_cache:
             self.aciertos_cache += 1
+            return
+        if local:
+            self.tok_local += int(tok_in or 0) + int(tok_out or 0)
             return
         self.tok_in += int(tok_in or 0)
         self.tok_out += int(tok_out or 0)
@@ -90,7 +94,7 @@ class Costo:
         return {
             "comentarios_procesados": self.comentarios,
             "segundos": round(time.perf_counter() - self.t0, 1),
-            "tokens_ia": self.tok_in + self.tok_out,
+            "tokens_ia": self.tok_in + self.tok_out + self.tok_local,
             "usd_ia": round(usd, 4),
             "usd_por_mil_comentarios": round(usd / n * 1000, 6),
             "hardware": describir_hardware(),
@@ -99,6 +103,7 @@ class Costo:
             # Extras (el evaluador los ignora; sirven al jurado)
             "desglose_segundos": self.etapas,
             "llamadas_llm": self.llamadas,
+            "tokens_llm_local": self.tok_local,
             "aciertos_cache_llm": self.aciertos_cache,
             "modo_llm": self.modo_llm,
             "modelo_llm": self.precios.get("modelo", ""),
