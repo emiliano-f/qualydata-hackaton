@@ -34,7 +34,7 @@ import pandas as pd
 from qd.config import obtener
 
 log = logging.getLogger("qd")
-SALIDAS = ["grupos", "coord_pares", "coord_pares_todos"]
+SALIDAS = ["grupos", "coord_pares", "coord_pares_todos", "grupos_diag"]
 
 
 def eventos(com: pd.DataFrame) -> pd.DataFrame:
@@ -277,6 +277,7 @@ def correr(ctx) -> None:
     G = nx.Graph()
     G.add_weighted_edges_from(zip(u.tolist(), v.tolist(), lift[fuerte].tolist()))
     grupo = {}
+    diag = []  # (grupo, cuentas, coh_obs, coh_nulo) por comunidad aceptada: lo usa el reporte
     if G.number_of_edges():
         # Poda por triángulos: una arista de campaña vive dentro de un bloque donde todos coinciden con todos;
         # una coincidencia casual casi no tiene vecinos en común.
@@ -318,6 +319,7 @@ def correr(ctx) -> None:
                 if med_act > tope_act:
                     descartados_act += 1
                 elif dens >= dens_min:
+                    co = cn = None
                     if cohesion_min > 0:
                         m = np.fromiter(c, dtype=np.int64)
                         co = cohesion(P, T, A, m, delta)
@@ -327,7 +329,7 @@ def correr(ctx) -> None:
                         if co - cn < cohesion_min:
                             descartados_coh += 1
                             continue
-                    validas.append(c)
+                    validas.append((c, co, cn))
         log.info("e08: poda por triángulos (soporte>=%.2f) %d -> %d aristas; comunidades (tamaño, densidad, "
                  "actividad mediana) %s; %d descartadas por actividad > p%g (%.0f publicaciones)", sop_min,
                  G.number_of_edges(), H.number_of_edges(), sorted(resumen, reverse=True)[:12], descartados_act,
@@ -335,15 +337,23 @@ def correr(ctx) -> None:
         if cohesion_min > 0:
             log.info("e08: cohesión por grupo candidato (n, obs, nulo) %s; %d descartadas por cohesión "
                      "(exceso < %.2f)", sorted(resumen_coh, reverse=True), descartados_coh, cohesion_min)
-        for i, c in enumerate(sorted(validas, key=len, reverse=True)):
+        for i, vc in enumerate(sorted(validas, key=lambda x: len(x[0]), reverse=True)):
+            c, co, cn = vc
+            gid = f"g{i + 1:03d}"
+            diag.append({"grupo": gid, "cuentas": len(c),
+                         "coh_obs": round(co, 4) if co is not None else None,
+                         "coh_nulo": round(cn, 4) if cn is not None else None})
             for nodo in c:
-                grupo[cuentas[nodo]] = f"g{i + 1:03d}"
+                grupo[cuentas[nodo]] = gid
     grupos = pd.DataFrame({"cuenta_id": list(grupo), "grupo": list(grupo.values())})
     pares_df = pd.DataFrame({"u": np.asarray(cuentas[u], dtype=object), "v": np.asarray(cuentas[v], dtype=object),
                              "n_pub": n_obs[fuerte].astype(np.int64), "score": s_obs[fuerte].astype(float),
                              "lift": lift[fuerte].astype(float)})
     # Fila centinela si está vacío: DuckDB no puede inferir tipos de columnas vacías (e09 la descarta)
     ctx.db.guardar("grupos", grupos if len(grupos) else pd.DataFrame({"cuenta_id": [""], "grupo": [""]}))
+    diag_df = pd.DataFrame(diag, columns=["grupo", "cuentas", "coh_obs", "coh_nulo"])
+    ctx.db.guardar("grupos_diag", diag_df if len(diag_df) else
+                   pd.DataFrame({"grupo": [""], "cuentas": [0], "coh_obs": [0.0], "coh_nulo": [0.0]}))
     ctx.db.guardar("coord_pares", pares_df if len(pares_df) else
                    pd.DataFrame({"u": [""], "v": [""], "n_pub": [0], "score": [0.0], "lift": [0.0]}))
     sel = n_obs >= min_pub
