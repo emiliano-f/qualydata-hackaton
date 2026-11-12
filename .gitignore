@@ -11,13 +11,23 @@
 config_local.*
 
 # ==========================================
-# 2. DATOS CRUDOS Y CACHÉ PESADA (NO SUBIR)
+# 2. DATOS CRUDOS, SALIDAS LOCALES Y CACHÉ PESADA (NO SUBIR)
 # ==========================================
 data/
 datasets/
-cache/
+datos/final/
+salida/
+work/
 tmp/
 temp/
+qd_parte*.patch
+
+# Caché: los embeddings NO se suben; las respuestas del LLM de la corrida final SÍ
+# (permiten que el jurado reproduzca la entrega sin clave y sin costo).
+cache/*
+!cache/llm/
+cache/llm/*
+!cache/llm/final/
 
 # Ignorar archivos de datos e intermedios en todo el repo...
 *.csv
@@ -28,7 +38,7 @@ temp/
 *.feather
 *.db
 *.sqlite
-*. sqlite3
+*.sqlite3
 *.duckdb
 *.duckdb.wal
 *.npy
