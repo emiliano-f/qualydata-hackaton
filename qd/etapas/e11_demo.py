@@ -751,9 +751,9 @@ function paso4(gid) {{
     : 'Evidencia del grupo ' + t.id;
   $('#nums4').innerHTML =
     [[t.nx, 'co-actúan vs azar'],
-     [fmtN(t.posts), 'publicaciones compartidas (≤ ' + fmtN(D.delta_min, 1) + ' min)'],
-     [fmtN(t.respuestas), 'respuestas mutuas'],
-     [fmtN(t.n_tags), 'hashtags raros' + (t.tags.length ? ': ' + t.tags.slice(0, 3).join(' ') : '')]]
+     [fmtN(t.posts), (t.posts === 1 ? 'publicación compartida' : 'publicaciones compartidas') + ' (≤ ' + fmtN(D.delta_min, 1) + ' min)'],
+     [fmtN(t.respuestas), t.respuestas === 1 ? 'respuesta mutua' : 'respuestas mutuas'],
+     [fmtN(t.n_tags), (t.n_tags === 1 ? 'hashtag raro' : 'hashtags raros') + (t.tags.length ? ': ' + t.tags.slice(0, 3).join(' ') : '')]]
     .map(x => '<div class="kpi"><div class="v">' + x[0] + '</div><div class="k">' + x[1] + '</div></div>').join('');
   $('#p4body').innerHTML =
     '<div class="cols" style="grid-template-columns:1fr 1fr">' +
