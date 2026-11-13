@@ -373,7 +373,9 @@ nav {{ display:flex; gap:8px; padding:4px 20px 10px; }}
 <section class="paso" id="p2" hidden><h2 class="pt" id="t2"></h2><div class="pc"><div id="g2" class="graf"></div>
 <p class="pie">La fecha de origen es una estimación.</p></div></section>
 <section class="paso" id="p3" hidden><h2 class="pt">Empujan</h2><div class="pc"><p class="pie">próximamente</p></div></section>
-<section class="paso" id="p4" hidden><h2 class="pt">Lo sabemos</h2><div class="pc"><p class="pie">próximamente</p></div></section>
+<section class="paso" id="p4" hidden><h2 class="pt" id="t4"></h2><div class="pc">
+<div class="gbts">{grupos_btn}</div><div id="p4body"></div>
+<p class="pie">Coordinación anómala detectada: una alerta para un analista, no prueba de manipulación.</p></div></section>
 <section class="paso" id="p5" hidden><h2 class="pt">Costo</h2><div class="pc"><p class="pie">próximamente</p></div></section>
 </main>
 <div id="tt"></div>
@@ -435,7 +437,8 @@ window.addEventListener('hashchange', aplicarHash);
 
 function dibujar(n) {{
   if (n === 2) paso2();
-  /* los pasos 3–5 se agregan en commits siguientes */
+  if (n === 4) paso4(sel.tipo === 'grupo' ? sel.id : (D.tarjetas[0] || {{}}).id);
+  /* los pasos 3 y 5 se agregan en commits siguientes */
 }}
 
 function paso2() {{
@@ -464,6 +467,38 @@ function paso2() {{
     text:'origen ' + lab, showarrow:false, bgcolor:css('--bg'), borderpad:2,
     font:{{ size:11, color:css('--sec') }} }}));
   Plotly.react('g2', tr, L, CFG);
+}}
+
+function paso4(gid) {{
+  const t = D.tarjetas.find(x => x.id === gid) || D.tarjetas[0];
+  if (!t) {{ $('#p4body').innerHTML = '<p class="pie">No se detectaron operaciones coordinadas.</p>'; return; }}
+  document.querySelectorAll('.gbtn').forEach(b => b.classList.toggle('on', b.dataset.g === t.id));
+  $('#t4').textContent = t.top_pct >= 50
+    ? 'El grupo ' + t.id + ' publica el ' + t.top_pct.toFixed(0) + ' % de sus comentarios en «' + t.top_et + '»'
+    : 'Evidencia del grupo ' + t.id;
+  $('#p4body').innerHTML =
+    '<div class="nums"><div><div class="v">' + t.nx + '</div><div class="k">co-actúan vs azar</div></div>' +
+    '<div><div class="v">' + t.posts + '</div><div class="k">publicaciones compartidas</div></div>' +
+    '<div><div class="v">' + t.respuestas + '</div><div class="k">respuestas mutuas</div></div>' +
+    '<div><div class="v">' + t.n_tags + '</div><div class="k">hashtags raros' +
+    (t.tags.length ? ': ' + t.tags.slice(0, 3).join(' ') : '') + '</div></div></div>' +
+    '<div class="cols" style="grid-template-columns:1fr 1fr;height:auto">' +
+    '<div><div class="fr">% de comentarios por hora: ' + t.id + ' vs no coordinadas</div><div id="h4" class="mini"></div></div>' +
+    '<div><div class="fr">«' + (t.post.titular || '').replace(/</g,'&lt;') + '» — un post, minuto a minuto</div><div id="g4" class="mini2"></div></div></div>' +
+    '<div class="fr">comentarios del grupo:</div><ul style="color:var(--sec);font-size:14px;margin-top:2px">' +
+    t.ej.slice(0, 3).map(x => '<li>«' + x.replace(/</g,'&lt;') + '»</li>').join('') + '</ul>';
+  const Lh = base(); Lh.margin = {{ l:70, r:60, t:4, b:30 }};
+  Lh.xaxis = {{ tickmode:'array', tickvals:[0,3,6,9,12,15,18,21], tickfont:{{ size:9 }}, gridcolor:css('--borde'),
+    title:{{ text:'hora local (−03:00)', font:{{ size:10 }} }} }};
+  Plotly.react('h4', [{{ z:[t.horas, D.horas_ng], y:[t.id, 'resto'], x:[...Array(24).keys()],
+    type:'heatmap', showscale:true, colorscale:'Viridis',
+    colorbar:{{ thickness:8, tickfont:{{ size:9 }}, title:{{ text:'% com.', font:{{ size:9 }} }} }} }}], Lh, CFG);
+  const L4 = base(); L4.margin = {{ l:10, r:10, t:4, b:30 }};
+  L4.xaxis.title = {{ text:'minutos desde el primero', font:{{ size:10 }} }};
+  L4.yaxis = {{ type:'category', showticklabels:false, ticks:'', title:{{ text:'cuenta', font:{{ size:10 }} }} }};
+  Plotly.react('g4', [{{ x:t.post.pts.map(p => p.m), y:t.post.pts.map(p => p.c), mode:'markers',
+    type:'scatter', marker:{{ size:7, color:css('--apoya') }},
+    hovertemplate:'%{{y}} · +%{{x}} min<extra></extra>' }}], L4, CFG);
 }}
 
 aplicarHash();
