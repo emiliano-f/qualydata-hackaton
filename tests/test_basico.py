@@ -417,6 +417,79 @@ def test_evidencia_grupos():
     assert hashtags_raros(uso_g, uso_t, umbral=10) == ["#agua", "#litio"]
 
 
+def test_e11_demo_no_toca_nada():
+    """e11 es solo-lectura: no escribe tablas en el almacén ni archivos en la salida,
+    genera reportes/<set>_demo.html y un fallo interno queda en warning (no corta)."""
+    import tempfile
+    from types import SimpleNamespace
+
+    from qd.costo import Costo
+    from qd.db import AlmacenDuckDB
+    from qd.etapas import e11_demo
+
+    tmp = Path(tempfile.mkdtemp())
+    datos = tmp / "juguete2"
+    datos.mkdir()
+    (datos / "x.csv").write_text("x", encoding="utf-8")
+    db = AlmacenDuckDB(tmp / "qd.duckdb", None, None)
+    com = pd.DataFrame({
+        "comentario_id": [f"c{i}" for i in range(8)],
+        "cuenta_id": ["u1", "u2", "u1", "u2", "u3", "u4", "u3", "u4"],
+        "publicacion_id": ["p1", "p1", "p2", "p2", "p3", "p3", "p1", "p1"],
+        "ts": [0, 10, 100, 120, 90000, 90100, 91000, 91100],
+        "texto": ["el agua es vida #litio siempre", "#litio futuro del pais",
+                  "un comentario largo de prueba", "#litio si se puede",
+                  "texto largo suficiente para ser etiqueta", "otro texto suficientemente largo",
+                  "#raro_x texto largo de ejemplo", "#raro_x otro texto de ejemplo"],
+        "respuesta_a": ["", "c1", "", "c3", "", "", "", "c7"]})
+    asig = pd.DataFrame({
+        "comentario_id": com["comentario_id"], "micro": range(8),
+        "narrativa": ["n001"] * 4 + ["n002"] * 2 + [""] * 2,
+        "conf": [.9, .8, .7, .6, .5, .4, .1, .1],
+        "postura": ["apoya", "apoya", "rechaza", "apoya", "rechaza", "rechaza", "", ""],
+        "fuente_postura": "x", "heredada": False})
+    tablas = {"com": com, "asig": asig,
+              "narr": pd.DataFrame({"narrativa": ["n001", "n002"], "n": [4, 2],
+                                    "titulo": ["aaa bbb ccc", "ddd eee fff"],
+                                    "frases_clave": ["f1|f2", "f3"], "ts_origen": [10, 90000]}),
+              "grupos": pd.DataFrame({"cuenta_id": ["u1", "u2"], "grupo": ["g001", "g001"]}),
+              "grupos_diag": pd.DataFrame({"grupo": ["g001"], "cuentas": [2],
+                                           "coh_obs": [.8], "coh_nulo": [.2]}),
+              "coord_pares": pd.DataFrame({"u": ["u1"], "v": ["u2"], "n_pub": [2],
+                                           "score": [3.], "lift": [9.]}),
+              "coord_pares_todos": pd.DataFrame({"u": ["u1", "u3"], "v": ["u2", "u4"],
+                                                 "n_pub": [1, 1]}),
+              "pub": pd.DataFrame({"publicacion_id": ["p1"], "fuente_id": ["f"], "ts": [0],
+                                   "titular": ["post viral"]}),
+              "cta": pd.DataFrame({"cuenta_id": ["u1", "u2", "u3", "u4"],
+                                   "usuario": ["a", "b", "c", "d"], "ts_creacion": [0] * 4,
+                                   "seguidores": [1] * 4, "siguiendo": [1] * 4,
+                                   "edad_dias": [9] * 4})}
+    for t, d in tablas.items():
+        db.guardar(t, d)
+    salida = tmp / "salida"
+    salida.mkdir()
+    (salida / "centinela.txt").write_text("intocable", encoding="utf-8")
+    antes = {p.name: p.stat().st_mtime_ns for p in salida.iterdir()}
+    n_tablas = db.con.execute("SELECT count(*) FROM information_schema.tables").fetchone()[0]
+    ctx = SimpleNamespace(datos=datos, salida=salida, work=tmp,
+                          cfg={"reporte": {"dir": str(tmp / "rep")}}, db=db,
+                          costo=Costo({}, "x"), sin_llm=True, embed="tfidf", extra={})
+
+    e11_demo.correr(ctx)
+    assert (tmp / "rep" / "juguete2_demo.html").exists()
+    assert antes == {p.name: p.stat().st_mtime_ns for p in salida.iterdir()}
+    assert db.con.execute("SELECT count(*) FROM information_schema.tables").fetchone()[0] == n_tablas
+
+    orig = e11_demo.recolectar
+    e11_demo.recolectar = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))
+    try:
+        e11_demo.correr(ctx)   # fallo interno -> log.warning, no levanta
+    finally:
+        e11_demo.recolectar = orig
+    db.cerrar()
+
+
 if __name__ == "__main__":
     for nombre, f in list(globals().items()):
         if nombre.startswith("test_"):
