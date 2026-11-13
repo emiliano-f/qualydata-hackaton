@@ -16,6 +16,8 @@ make humo && make test        # datos de juguete y tests (no necesitan el set re
 make test-sucio               # datos rotos a propósito: el pipeline no se cae
 ```
 
+- `make instalar` descarga PyTorch (varios GB): hace falta espacio libre en el disco donde está el repo y el caché de
+  uv. Evitá clonar en `/tmp` si es un tmpfs chico.
 - **LLM opcional y apagado por defecto** (`llm.activo: false`). Usamos modelos locales de IA (embeddings, agrupamiento, grafos); el LLM es solo un complemento. Para prenderlo: `llm.activo: true`, exportá
   `LLM_API_KEY` y completá `llm.base_url` / `llm.modelo` (cualquier API compatible con OpenAI). Corte rápido si la
   API falla (timeout 20 s, 2 reintentos, 2 fallas seguidas → respaldo determinista); las respuestas truncadas o vacías
@@ -26,6 +28,9 @@ make test-sucio               # datos rotos a propósito: el pipeline no se cae
   con `modo_llm: desde_cache`. `modo_llm` vale `completo`, `desde_cache`, `degradado` (falló la API o faltaba caché) o
   `apagado`.
 - **Calibración:** `make barrido P=<param> V=<v1,v2,...> ETAPA=<eNN>`; `python herramientas/diagnostico.py`.
+- **Tablero de demo:** `reportes/<set>_demo.html` (lo genera la etapa e11 en cada corrida; `make final` escribe
+  `reportes/final_demo.html`). Cinco vistas: Narrativas, Emergentes, Coordinación, Evidencia y Costo. Se navega con
+  las teclas 1–5 o ←/→, Esc vuelve a "ver todo", y abre sin internet.
 - **Reporte para la demo:** `reportes/<set>.html`, que se genera al final de cada corrida (`make final` escribe
   `reportes/final.html`). Se abre en el navegador y tiene tres secciones: qué circula y desde cuándo (narrativas en el
   tiempo, con el origen de las emergentes), quién lo empuja (red de cuentas coordinadas y a qué narrativa empuja cada
@@ -85,7 +90,7 @@ e5 (domina el tiempo); en caliente se reutiliza el caché por texto único. Son 
 | Práctica | 200.000 (14 días) | 570 | 31 | 3,0 | 49 | 14 | 5 | 0,0005 | 0 |
 | Pseudo-final | 98.312 (10 días) | 410 | 20 | 2,4 | 23 | 7 | 3 | 0,0008 | 0 |
 | ×5 de práctica (`herramientas/escala.py`, **TF-IDF**) | 1.000.000 (70 días) | — | 135 | 7,8 | 206 | 71 | 26 | 0,00003 | 0 |
-| Final | [__] | [__] | [__] | [__] | [__] | [__] | [__] | [__] | [__] |
+| Final | 150.000 (10 días) | 393 | — | 2,6 | 35 | 10 | 4 | 0,0005 | 0 |
 
 La RAM y el almacenamiento son los de la corrida en frío. El USD de cómputo usa `usd_hora_cpu` de `precios.yaml`
 (AWS EC2 c6i.4xlarge on-demand, USD 0,68/h). En la fila ×5, cada réplica repite los textos de práctica con ids y
