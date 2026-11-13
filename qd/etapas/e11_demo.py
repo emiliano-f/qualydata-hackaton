@@ -319,7 +319,7 @@ def render(d: dict) -> str:
                    f"{100 * (1 - r['apoya'] - r['rechaza']):.0f} % sin bando")
         filas_p1.append(f'''<div class="barr" data-nar="{_esc(r["id"])}" data-emerg="{1 if r["emergente"] else 0}"
   data-n="{r["n"]}" data-ej="{_esc(json.dumps(r["ej"][:2]))}" data-pos="{_esc(pos_txt)}">
-  <span class="sw" style="background:var(--c{r["i"] + 1})"></span>
+  <span class="sw" style="background:{'var(--c' + str(r["i"] + 1) + ')' if r["i"] >= 0 else 'var(--otras)'}"></span>
   <div class="et">«{_esc(r["etiqueta"])}» <span class="nid">{_esc(r["id"])}</span>{badge} <span class="fr">{_esc(r["frases"])}</span></div>
   <div class="track"><div class="fill" style="width:{100 * r["n"] / n_max:.1f}%;background:var(--c{r["i"] + 1})"></div></div>
   <div class="post"><span class="mid"></span><span class="ap" style="width:{min(50, 50 * r["apoya"]):.0f}%"></span><span class="re" style="width:{min(50, 50 * r["rechaza"]):.0f}%"></span></div>
@@ -362,18 +362,21 @@ def render(d: dict) -> str:
   --borde:#2a3040; --apoya:#4C9BE8; --rechaza:#F28C28; --otras:{GRIS};
   {''.join(f"--c{i + 1}:{h};" for i, h in enumerate(PALETA))} }}
 * {{ box-sizing:border-box; }}
-body {{ margin:0; background:var(--bg); color:var(--txt); font:16px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif; }}
-header {{ display:flex; justify-content:space-between; align-items:center; padding:10px 20px 6px; }}
+body {{ margin:0; background:var(--bg); color:var(--txt); font:16px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;
+  display:flex; flex-direction:column; height:100vh; }}
+header {{ display:flex; justify-content:space-between; align-items:center; padding:10px 20px 6px; flex:none; }}
 h1 {{ font-size:22px; margin:0; }}
 #todo {{ background:var(--sup2); color:var(--txt); border:1px solid var(--borde); border-radius:8px;
   padding:6px 14px; font-size:15px; cursor:pointer; }}
-nav {{ display:flex; gap:8px; padding:4px 20px 10px; }}
+nav {{ display:flex; gap:8px; padding:4px 20px 10px; flex:none; }}
 .tab, .gbtn {{ background:var(--sup); color:var(--sec); border:1px solid var(--borde); border-radius:8px;
   padding:6px 14px; font-size:15px; cursor:pointer; }}
 .tab.on, .gbtn.on {{ color:var(--txt); border-color:var(--apoya); background:var(--sup2); }}
-.paso {{ height:calc(100vh - 118px); padding:0 20px; overflow:hidden; }}
-.pt {{ font-size:19px; margin:2px 0 10px; font-weight:600; }}
-.pc {{ height:calc(100% - 40px); }}
+main {{ flex:1; min-height:0; }}
+.paso {{ height:100%; padding:0 20px; overflow:hidden; display:flex; flex-direction:column; }}
+.paso[hidden] {{ display:none; }}
+.pt {{ font-size:19px; margin:2px 0 10px; font-weight:600; flex:none; }}
+.pc {{ flex:1; min-height:0; }}
 .kpis {{ display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-bottom:14px; }}
 .kpi {{ background:var(--sup); border-radius:10px; padding:10px 14px; }}
 .kpi .v {{ font-size:34px; font-weight:700; font-variant-numeric:tabular-nums; }}
@@ -390,8 +393,9 @@ nav {{ display:flex; gap:8px; padding:4px 20px 10px; }}
 .barr-head {{ color:var(--mut); font-size:12px; height:22px; }}
 .barr-head .ph {{ grid-column:4; text-align:center; }}
 .barr-head .nh {{ grid-column:5; text-align:right; }}
-.barr.mas {{ color:var(--mut); font-size:13px; font-style:italic; cursor:default; }}
-.sw {{ width:12px; height:12px; border-radius:3px; }}
+.barr.mas {{ color:var(--mut); font-size:13px; font-style:italic; cursor:default;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+.sw {{ width:12px; height:12px; border-radius:3px; border:1px solid var(--mut); }}
 .et {{ font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
 .nid {{ color:var(--mut); font-size:12px; }}
 .fr {{ color:var(--mut); font-size:12px; }}
@@ -406,7 +410,7 @@ nav {{ display:flex; gap:8px; padding:4px 20px 10px; }}
   padding:1px 7px; font-size:11px; font-weight:600; }}
 .pie {{ color:var(--mut); font-size:13px; margin-top:8px; }}
 .graf {{ width:100%; height:calc(100% - 70px); }}
-.cols {{ display:grid; grid-template-columns:1fr 380px; gap:14px; height:calc(100% - 46px); }}
+.cols {{ display:grid; grid-template-columns:1fr 380px; gap:14px; flex:1; min-height:0; }}
 .cards {{ overflow-y:auto; }}
 .card {{ background:var(--sup); border:1px solid var(--borde); border-radius:10px; padding:10px 14px;
   margin-bottom:10px; cursor:pointer; }}
@@ -474,7 +478,8 @@ function compactarP1() {{
   if (ocultas.length) {{
     mas.hidden = false;
     const ncom = ocultas.reduce((a, r) => a + Number(r.dataset.n), 0);
-    mas.textContent = '+' + ocultas.length + ' narrativas más chicas (' + fmtN(ncom) + ' comentarios)';
+    mas.textContent = '+' + ocultas.length + (ocultas.length === 1 ? ' narrativa más chica' : ' narrativas más chicas') +
+      ' (' + fmtN(ncom) + ' comentario' + (ncom === 1 ? '' : 's') + ')';
   }}
 }}
 
@@ -551,7 +556,8 @@ function paso2() {{
   const L = base();
   L.yaxis.title = {{ text:'comentarios por día' }};
   L.xaxis.rangeslider = {{ thickness:.08 }};
-  L.showlegend = true; L.legend = {{ orientation:'h', y:-0.16 }};
+  L.showlegend = true; L.legend = {{ x:1.01, y:1, xanchor:'left', font:{{ size:11 }} }};
+  L.margin.r = 250;
   L.shapes = shown.filter(l => D.origenes[l]).map(lab => ({{ type:'line',
     x0:D.origenes[lab].slice(0, 10), x1:D.origenes[lab].slice(0, 10), yref:'paper', y0:0, y1:1,
     line:{{ dash:'dash', width:2, color:colorDe(filaDe(lab).i) }} }}));
@@ -565,7 +571,11 @@ function paso2() {{
 function paso3() {{
   const g = D.grafo;
   const ei = {{ x:[], y:[] }};
-  for (const [a, b] of g.aristas) {{ ei.x.push(g.nodos[a].x, g.nodos[b].x, null); ei.y.push(g.nodos[a].y, g.nodos[b].y, null); }}
+  // solo aristas intra-cluster: dentro de un grupo o entre normales; las que cruzan se omiten
+  for (const [a, b] of g.aristas) {{
+    if ((g.nodos[a].g || '') !== (g.nodos[b].g || '')) continue;
+    ei.x.push(g.nodos[a].x, g.nodos[b].x, null); ei.y.push(g.nodos[a].y, g.nodos[b].y, null);
+  }}
   const COLG = ['#e8e8e8', '#f5d76e', '#4dd8e8', '#f0a0c8', '#a8d878', '#c898f0'];
   const SYMS = ['circle', 'square', 'diamond', 'triangle-up', 'cross', 'star'];
   const colG = {{}}, symG = {{}};
