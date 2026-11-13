@@ -16,7 +16,7 @@ make humo && make test        # datos de juguete y tests (no necesitan el set re
 make test-sucio               # datos rotos a propósito: el pipeline no se cae
 ```
 
-- **LLM opcional y apagado por defecto** (`llm.activo: false`). Usamos modelos locales de IA (embeddings, agrupamiento, grafos); el LLM es opcional y va apagado por defecto. Para prenderla: `llm.activo: true`, exportá
+- **LLM opcional y apagado por defecto** (`llm.activo: false`). Usamos modelos locales de IA (embeddings, agrupamiento, grafos); el LLM es solo un complemento. Para prenderlo: `llm.activo: true`, exportá
   `LLM_API_KEY` y completá `llm.base_url` / `llm.modelo` (cualquier API compatible con OpenAI). Corte rápido si la
   API falla (timeout 20 s, 2 reintentos, 2 fallas seguidas → respaldo determinista); las respuestas truncadas o vacías
   se descartan con un WARNING y no se guardan en caché.
