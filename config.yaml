@@ -77,6 +77,14 @@ coord:
   bonus_texto: 1.0       # peso extra si comparten texto esqueleto
   min_tok_texto: 6
   semilla: 42
+  # Fusión opcional de grupos (después del filtro de cohesión). Umbrales fijos:
+  #   (a) misma narrativa principal con share >= 0.80 en ambos grupos;
+  #   v1: co-acción cruzada obs - nulo >= cohesion_min;  v3: f >= fusion_frac y f >= fusion_ratio * baseline;
+  #   v1v3 = v1 o v3;  v2 = solo (a) (control).
+  fusion: false            # false | v1 | v3 | v1v3 | v2
+  fusion_cos: 0.95         # v3: coseno mínimo entre embeddings = "casi idéntico"
+  fusion_frac: 0.30        # v3: fracción mínima con casi-idéntico en el otro grupo
+  fusion_ratio: 2.0        # v3: f / baseline (cuentas no coordinadas) mínimo
 
 llm:                     # API compatible con OpenAI. Requiere la variable LLM_API_KEY; sin clave, modo solo-caché.
   activo: false          # se prende solo si la API está sana (respuestas completas, sin truncadas)

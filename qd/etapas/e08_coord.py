@@ -64,6 +64,154 @@ def cohesion(post: np.ndarray, ts: np.ndarray, acc: np.ndarray, miembros, delta:
     return float(junto.mean())
 
 
+def cohesion_cruzada(post: np.ndarray, ts: np.ndarray, acc: np.ndarray, ma, mb, delta: int) -> float:
+    """Fracción de los eventos de `ma` ∪ `mb` que tienen un evento del OTRO conjunto en la misma
+    publicación a |Δt| <= delta. Como `cohesion()` pero mide co-acción ENTRE dos grupos; se aplica
+    igual sobre (P,T,A) observadas o sobre las réplicas del nulo."""
+    sa = np.isin(acc, np.fromiter(ma, dtype=acc.dtype))
+    sb = np.isin(acc, np.fromiter(mb, dtype=acc.dtype))
+    if not sa.any() or not sb.any():
+        return 0.0
+    m = pd.DataFrame({"a": acc[sa | sb], "p": post[sa | sb], "t": ts[sa | sb],
+                      "g": np.where(sa[sa | sb], 0, 1)})
+    m = m.drop_duplicates(["a", "p"]).sort_values(["p", "t"], kind="stable")
+    pp, tt, gg = m["p"].to_numpy(), m["t"].to_numpy(), m["g"].to_numpy()
+    junto = np.zeros(len(m), bool)
+    cortes = np.flatnonzero(np.diff(pp)) + 1
+    for ini, fin in zip(np.r_[0, cortes], np.r_[cortes, len(pp)]):
+        if fin - ini < 2:
+            continue
+        t, g = tt[ini:fin], gg[ini:fin]
+        ta, tb = t[g == 0], t[g == 1]
+        otro = np.where(g == 0,
+                        np.searchsorted(tb, t + delta, "right") - np.searchsorted(tb, t - delta, "left"),
+                        np.searchsorted(ta, t + delta, "right") - np.searchsorted(ta, t - delta, "left"))
+        junto[ini:fin] = otro >= 1
+    return float(junto.mean())
+
+
+def fusionar_grupos(validas: list, pasa: list) -> dict:
+    """Union-find sobre los índices de `validas` unidos por los pares `pasa` (fusión transitiva).
+    Devuelve {raiz: set_de_codigos} con la unión de miembros por componente."""
+    padre = list(range(len(validas)))
+
+    def find(i: int) -> int:
+        while padre[i] != i:
+            padre[i] = padre[padre[i]]
+            i = padre[i]
+        return i
+
+    for i, j in pasa:
+        padre[find(j)] = find(i)
+    comp: dict = {}
+    for i, vc in enumerate(validas):
+        comp.setdefault(find(i), set()).update(vc[0])
+    return comp
+
+
+def orden_grupos(comp: dict, cuentas) -> list:
+    """Orden determinista para el relabel con fusión: tamaño desc, desempate por menor cuenta_id."""
+    return sorted(comp.values(), key=lambda c: (-len(c), min(cuentas[n] for n in c)))
+
+
+def _frac_casi_identicos(a_df: pd.DataFrame, b_df: pd.DataFrame, fila_de_h, cos_min: float,
+                         min_tok: int) -> float:
+    """Fracción de filas de a_df con un comentario "casi idéntico" en b_df: mismo h_esq con
+    n_tok >= min_tok, o coseno de embeddings >= cos_min."""
+    if not len(a_df) or not len(b_df):
+        return 0.0
+    esq_b = set(b_df.loc[b_df["n_tok"] >= min_tok, "h_esq"])
+    ok = (a_df["h_esq"].isin(esq_b) & (a_df["n_tok"] >= min_tok)).to_numpy()
+    if fila_de_h is not None:
+        sim = fila_de_h(a_df["h_texto"].to_numpy()) @ fila_de_h(b_df["h_texto"].to_numpy()).T
+        ok |= (sim >= cos_min).any(axis=1)
+    return float(ok.mean())
+
+
+def pares_fusion(ctx, validas: list, fusion: str, com: pd.DataFrame, cuentas,
+                 P: np.ndarray, T: np.ndarray, A: np.ndarray, nulos_pta: list,
+                 delta: int, cohesion_min: float) -> list:
+    """Pares (i, j) de `validas` que cumplen el criterio `fusion` (v1|v3|v1v3|v2).
+    Condición común (a): misma narrativa principal y share >= 0.80 en ambos grupos."""
+    cfg = ctx.cfg
+    narr = {}
+    if ctx.db.existe("asig_narr"):
+        an = ctx.db.leer("asig_narr")[["comentario_id", "narrativa", "es_ruido"]]
+        an.loc[an["es_ruido"].astype(bool), "narrativa"] = ""
+        narr = dict(zip(an["comentario_id"], an["narrativa"]))
+    narr_de = com["comentario_id"].map(narr).fillna("")
+    coordenadas = set().union(*[set(cuentas[n] for n in c) for c, _, _ in validas])
+    info = []
+    for c, _, _ in validas:
+        sel = com["cuenta_id"].isin({cuentas[n] for n in c})
+        labs = narr_de[sel].to_numpy()
+        nz = labs[labs != ""]
+        main = str(pd.Series(nz).mode().iloc[0]) if len(nz) else ""
+        share = float((labs == main).mean()) if len(labs) and main else 0.0
+        info.append((main, share))
+        log.info("e08: fusión: candidato %d ctas, narrativa principal %r (share %.2f)",
+                 len(c), main, share)
+
+    min_tok = int(obtener(cfg, "coord.min_tok_texto", 6))
+    cos_min = float(obtener(cfg, "coord.fusion_cos", 0.95))
+    frac_min = float(obtener(cfg, "coord.fusion_frac", 0.30))
+    ratio_min = float(obtener(cfg, "coord.fusion_ratio", 2.0))
+    rng = np.random.default_rng(int(obtener(cfg, "coord.semilla", 42)))
+
+    fila_de_h = None
+    if "v3" in fusion:
+        try:
+            from qd import vectores
+            h_txt, X = vectores.cargar(ctx)
+            idx = {h: i for i, h in enumerate(h_txt)}
+
+            def fila_de_h(hs):  # filas de emb.npy por h_texto
+                return X[np.fromiter((idx[h] for h in hs), dtype=np.int64)]
+        except Exception as e:  # noqa: BLE001
+            log.warning("e08: fusión v3 sin embeddings (%s); solo cuenta h_esq", e)
+
+    def comentarios_de(c, main):
+        sel = com["cuenta_id"].isin({cuentas[n] for n in c}) & (narr_de == main)
+        return com.loc[sel, ["h_esq", "n_tok", "h_texto"]]
+
+    pool_no_coord = com.loc[~com["cuenta_id"].isin(coordenadas)]
+    pasa = []
+    for i in range(len(validas)):
+        for j in range(i + 1, len(validas)):
+            mi, si = info[i]
+            mj, sj = info[j]
+            if not (mi and mi == mj and si >= 0.80 and sj >= 0.80):
+                continue
+            ci, cj = validas[i][0], validas[j][0]
+            ok = fusion == "v2"
+            det = ""
+            if fusion in ("v1", "v1v3"):
+                co_x = cohesion_cruzada(P, T, A, ci, cj, delta)
+                cn_x = (float(np.mean([cohesion_cruzada(p0, t0, a0, ci, cj, delta)
+                                       for p0, t0, a0 in nulos_pta])) if nulos_pta else 0.0)
+                ok = ok or (co_x - cn_x >= cohesion_min)
+                det = f"v1 coh_x={co_x:.2f} nulo={cn_x:.2f}"
+            if not ok and fusion in ("v3", "v1v3"):
+                di = comentarios_de(ci, mi)
+                dj = comentarios_de(cj, mi)
+                pool = pool_no_coord[narr_de[~com["cuenta_id"].isin(coordenadas)] == mi]
+                fs, bs = [], []
+                for a_df, b_df in ((di, dj), (dj, di)):
+                    f = _frac_casi_identicos(a_df, b_df, fila_de_h, cos_min, min_tok)
+                    b = float(np.mean([_frac_casi_identicos(
+                        a_df, pool.sample(n=min(len(b_df), len(pool)), random_state=rng),
+                        fila_de_h, cos_min, min_tok) for _ in range(3)])) if len(pool) else 0.0
+                    fs.append(f)
+                    bs.append(b)
+                ok3 = all(f >= frac_min and f >= ratio_min * b for f, b in zip(fs, bs))
+                ok = ok or ok3
+                det += f" v3 f={['%.2f' % x for x in fs]} b={['%.2f' % x for x in bs]}"
+            if ok:
+                pasa.append((i, j))
+                log.info("e08: fusión '%s': par %d+%d cumple (%s)%s", fusion, i, j, mi, det)
+    return pasa
+
+
 def pares(post: np.ndarray, ts: np.ndarray, acc: np.ndarray, txt: np.ndarray, delta: int, bonus: float,
           n_acc: int, bloque: int = 5_000_000):
     """Pares co-actuantes, agregados. Entradas ordenadas por (post, ts); cada cuenta tiene un evento por
@@ -166,8 +314,8 @@ def correr(ctx) -> None:
     gamma = float(obtener(cfg, "coord.gamma", 1.0))
     rng = np.random.default_rng(int(obtener(cfg, "coord.semilla", 42)))
 
-    com = ctx.db.leer("com")[["comentario_id", "cuenta_id", "publicacion_id", "ts", "h_esq", "n_tok", "respuesta_a",
-                              "texto"]]
+    com = ctx.db.leer("com")[["comentario_id", "cuenta_id", "publicacion_id", "ts", "h_esq", "h_texto",
+                              "n_tok", "respuesta_a", "texto"]]
     ev = eventos(com)
     acc_codes, cuentas = pd.factorize(ev["cuenta_id"])
     post_codes, post_ids = pd.factorize(ev["publicacion_id"])
@@ -337,7 +485,29 @@ def correr(ctx) -> None:
         if cohesion_min > 0:
             log.info("e08: cohesión por grupo candidato (n, obs, nulo) %s; %d descartadas por cohesión "
                      "(exceso < %.2f)", sorted(resumen_coh, reverse=True), descartados_coh, cohesion_min)
-        for i, vc in enumerate(sorted(validas, key=lambda x: len(x[0]), reverse=True)):
+        fusion = str(obtener(cfg, "coord.fusion", "false")).lower()
+        if fusion != "false" and len(validas) > 1:
+            pasa = pares_fusion(ctx, validas, fusion, com, cuentas, P, T, A, nulos_pta,
+                                delta, cohesion_min)
+            comp = fusionar_grupos(validas, pasa)
+            nuevas = []
+            for cs in orden_grupos(comp, cuentas):
+                originales = [vc for vc in validas if vc[0] <= cs]
+                if len(originales) == 1:
+                    nuevas.append(originales[0])
+                else:
+                    m = np.fromiter(cs, dtype=np.int64)
+                    co = cohesion(P, T, A, m, delta) if cohesion_min > 0 else None
+                    cn = (float(np.mean([cohesion(p0, t0, a0, m, delta)
+                                         for p0, t0, a0 in nulos_pta]))
+                          if cohesion_min > 0 and nulos_pta else None)
+                    nuevas.append((cs, co, cn))
+            validas = nuevas
+            log.info("e08: fusión '%s': %d fusiones", fusion, len(pasa))
+            orden = sorted(validas, key=lambda vc: (-len(vc[0]), min(cuentas[n] for n in vc[0])))
+        else:
+            orden = sorted(validas, key=lambda x: len(x[0]), reverse=True)
+        for i, vc in enumerate(orden):
             c, co, cn = vc
             gid = f"g{i + 1:03d}"
             diag.append({"grupo": gid, "cuentas": len(c),
