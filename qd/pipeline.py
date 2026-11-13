@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from qd import config as qcfg
+from qd import costo as qcosto
 from qd.costo import Costo
 from qd.db import abrir_almacen
 
@@ -115,6 +116,7 @@ def main(argv=None) -> int:
         log.exception("El pipeline falló")
         return 1
     finally:
+        costo.almacenamiento_mb = qcosto.medir_almacenamiento(a.datos, work)
         costo.escribir(a.salida / "costo.json")
         db.cerrar()
 

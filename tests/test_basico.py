@@ -291,6 +291,132 @@ def test_consolidar_y_sets():
     assert cfg["narr"]["q_T"] == 0.4 and cfg["llm"]["activo"] is False
 
 
+def test_embed_e5_corta_sin_respaldo():
+    """Si el motor pedido es e5 y no carga, corta con RuntimeError; tfidf solo corre si se pide."""
+    import tempfile
+    from types import SimpleNamespace
+
+    import numpy as np
+    from qd.costo import Costo
+    from qd.etapas import e02_embed
+
+    class _DB:
+        def __init__(self):
+            self.tab = {}
+        def leer(self, t):
+            return pd.DataFrame({"h_texto": np.array([11, 22, 33], np.int64),
+                                 "texto": ["hola mundo", "otro texto", "chau chau"],
+                                 "norm": ["hola mundo", "otro texto", "chau chau"]})
+        def existe(self, t):
+            return t in self.tab
+        def guardar(self, t, df):
+            self.tab[t] = df
+
+    def _ctx(motor, tmp):
+        return SimpleNamespace(db=_DB(), work=Path(tmp), cfg={}, embed=motor, costo=Costo({}, "x"))
+
+    llamado = {"e5": 0}
+    orig = e02_embed._e5
+    def _falla(*a, **k):
+        llamado["e5"] += 1
+        raise OSError("sin red")
+    e02_embed._e5 = _falla
+    try:
+        try:
+            e02_embed.correr(_ctx("e5", tempfile.mkdtemp()))
+        except RuntimeError as e:
+            assert str(e) == ("e5 no disponible: corré make instalar con internet o usá "
+                              "--embed tfidf a propósito")
+            assert e.__cause__ is not None
+        else:
+            raise AssertionError("e5 sin modelo tenía que cortar, no caer a tfidf")
+        ctx2 = _ctx("tfidf", tempfile.mkdtemp())
+        e02_embed.correr(ctx2)
+        assert llamado["e5"] == 1                                    # tfidf no toca _e5
+        assert (ctx2.db.tab["textos_emb"]["motor"] == "tfidf").all()
+        assert np.load(ctx2.work / "emb.npy").shape[0] == 3
+    finally:
+        e02_embed._e5 = orig
+
+
+def test_costo_extras():
+    """ram_pico_gb (unidades según SO), almacenamiento_mb (verdad/ excluida) y cuentas derivadas."""
+    import sys
+    import tempfile
+    from types import SimpleNamespace
+
+    from qd import costo as qcosto
+    from qd.costo import Costo
+
+    orig_getrusage, orig_platform = qcosto.resource.getrusage, sys.platform
+    try:
+        sys.platform = "linux"
+        qcosto.resource.getrusage = lambda *a, **k: SimpleNamespace(ru_maxrss=2_000_000)
+        assert qcosto._ram_pico_gb() == 2.0                       # 2.000.000 KB -> 2 GB
+        sys.platform = "darwin"
+        qcosto.resource.getrusage = lambda *a, **k: SimpleNamespace(ru_maxrss=2_000_000_000)
+        assert qcosto._ram_pico_gb() == 2.0                       # 2e9 bytes -> 2 GB
+    finally:
+        qcosto.resource.getrusage = orig_getrusage
+        sys.platform = orig_platform
+
+    with tempfile.TemporaryDirectory() as td:
+        td = Path(td)
+        datos, work = td / "datos", td / "work"
+        (datos / "verdad").mkdir(parents=True)
+        (work / "parquet" / "dia=1").mkdir(parents=True)
+        (datos / "comentarios.csv").write_bytes(b"x" * 2_000_000)
+        (datos / "verdad" / "v.csv").write_bytes(b"y" * 9_000_000)
+        (work / "qd.duckdb").write_bytes(b"z" * 3_000_000)
+        (work / "qd.duckdb.wal").write_bytes(b"z" * 500_000)
+        (work / "parquet" / "dia=1" / "p.parquet").write_bytes(b"z" * 4_000_000)
+        assert qcosto.medir_almacenamiento(datos, work) == {"duckdb": 3.5, "parquet": 4.0,
+                                                          "entrada": 2.0}
+
+    c = Costo({"usd_hora_cpu": 0.72}, "x")
+    c.comentarios = 100_000
+    c.t0 -= 100.0
+    d = c.a_dict()
+    for clave in ("comentarios_procesados", "segundos", "tokens_ia", "usd_ia",
+                  "usd_por_mil_comentarios", "hardware", "almacenamiento", "notas"):
+        assert clave in d                                        # las 8 obligatorias, intactas
+    assert d["comentarios_por_segundo"] == round(100_000 / d["segundos"], 1)
+    assert d["segundos_por_mil_comentarios"] == round(d["segundos"] / 100_000 * 1000, 4)
+    assert d["usd_computo_por_mil"] == round(d["segundos"] * 0.72 / 3600 / 100_000 * 1000, 6)
+    assert d["proyeccion_1M_por_dia"]["horas"] == round(d["segundos"] / 100_000 * 1e6 / 3600, 2)
+    assert d["ram_pico_gb"] > 0
+
+    c2 = Costo({}, "x")
+    c2.comentarios = 10
+    d2 = c2.a_dict()
+    assert d2["usd_computo_por_mil"] is None                     # sin usd_hora_cpu -> null
+    assert d2["almacenamiento_mb"] is None                       # sin medición -> null
+
+
+def test_evidencia_grupos():
+    """e10: evidencia por grupo — posts compartidos a ventana, respuestas mutuas y hashtags raros."""
+    import numpy as np
+    from qd.etapas.e10_reporte import hashtags_raros, mapa_hashtags, posts_compartidos, respuestas_mutuas
+
+    # g: dos miembros (u1, u2) co-actúan en p1 (<=10 s), u3 comenta lejos y solo en p2
+    g = pd.DataFrame({"comentario_id": ["c1", "c2", "c3", "c4", "c5"],
+                      "cuenta_id": ["u1", "u2", "u1", "u3", "u2"],
+                      "publicacion_id": ["p1", "p1", "p2", "p2", "p3"],
+                      "ts": [100, 105, 500, 900, 1000],
+                      "respuesta_a": ["", "c1", "", "", "c3"],
+                      "texto": ["#litio si", "otro #litio #agua", "#agua raro", "sin tags", "#litio"]})
+    assert posts_compartidos(g, 10) == 1        # solo p1 tiene >=2 miembros a <=10 s
+    assert respuestas_mutuas(g) == 2            # c2 (u2->c1 de u1) y c5 (u2->c3 de u1)
+    uso_g = mapa_hashtags(g[["cuenta_id", "texto"]])
+    com = pd.DataFrame({"cuenta_id": ["u1", "u2", "u3", "u4", "u5"],
+                        "texto": ["#litio si", "#litio #agua", "#agua raro", "#litio otro", "#litio mas"]})
+    uso_t = mapa_hashtags(com)
+    # #litio lo usan u1,u2,u3 en el grupo y 4 cuentas en total; #agua: u2,u3 grupo, 2 total
+    raros = hashtags_raros(uso_g, uso_t, umbral=3)
+    assert raros == ["#agua"]                  # #litio supera el umbral (4 > 3), #agua queda
+    assert hashtags_raros(uso_g, uso_t, umbral=10) == ["#agua", "#litio"]
+
+
 if __name__ == "__main__":
     for nombre, f in list(globals().items()):
         if nombre.startswith("test_"):
