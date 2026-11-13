@@ -490,6 +490,26 @@ def test_e11_demo_no_toca_nada():
     db.cerrar()
 
 
+def test_fusion_union_find_y_relabel():
+    from qd.etapas.e08_coord import fusionar_grupos, orden_grupos
+
+    validas = [({0}, 0.9, 0.1), ({1}, 0.8, 0.2), ({2}, 0.7, 0.3), ({3}, 0.6, 0.4)]
+    comp = fusionar_grupos(validas, [(0, 1), (1, 2)])  # A-B y B-C -> un solo grupo (transitivo)
+    assert sorted(len(s) for s in comp.values()) == [1, 3]
+    assert {0, 1, 2} in comp.values()
+
+    cuentas = pd.Index(["u2", "u0", "u3", "u1"])
+    orden = orden_grupos(comp, cuentas)
+    assert orden[0] == {0, 1, 2}                       # el más grande primero
+    assert orden == orden_grupos(comp, cuentas)        # determinista
+
+    # desempate por menor cuenta_id cuando el tamaño empata
+    comp2 = fusionar_grupos(validas, [])
+    cuentas2 = pd.Index(["b1", "a1", "b2", "a2"])
+    orden2 = orden_grupos(comp2, cuentas2)
+    assert orden2 == [{1}, {3}, {0}, {2}]              # a1, a2, b1, b2 por menor cuenta_id
+
+
 if __name__ == "__main__":
     for nombre, f in list(globals().items()):
         if nombre.startswith("test_"):
