@@ -144,7 +144,7 @@ class Costo:
     def a_dict(self) -> dict:
         self.resolver_modo_llm()
         if self.modo_llm == "apagado":
-            self.nota("sin IA en esta corrida")
+            self.nota("LLM apagado en esta corrida (0 tokens de LLM)")
         usd = self.usd()
         seg = round(time.perf_counter() - self.t0, 1)
         n = max(self.comentarios, 1)

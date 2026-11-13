@@ -141,7 +141,7 @@ Cubierto:
   etapa, `llamadas_llm`, `aciertos_cache_llm`, `modo_llm`, `modelo_llm`). Precios del LLM en `precios.yaml`.
 - Almacenamiento: DuckDB embebido (`work/<set>/qd.duckdb`) + Parquet particionado por día; justificación y
   plan de escala a millones/día en `README.md` (secciones "Dónde se guardan los datos" y "Cómo escala").
-- Costo de IA proporcional a la cantidad de **narrativas**, no de comentarios (~40 llamadas por set).
+- Costo de LLM proporcional a la cantidad de **narrativas**, no de comentarios (~40 llamadas por set).
 Revisar / falta:
 - Que `costo.json` del final refleje la corrida real (borrar `cache/llm/final` antes; la caché marca 0 tokens).
 - Cifras de tiempo del README con lo medido en el ensayo limpio (en frío ≈10 min dominado por embeddings e5 en

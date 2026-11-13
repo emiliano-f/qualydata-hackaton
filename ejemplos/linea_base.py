@@ -134,7 +134,7 @@ def main():
 
     elapsed = round(time.time() - started, 1)
     cost = {"comentarios_procesados": len(df), "segundos": elapsed, "tokens_ia": 0, "usd_ia": 0.0,
-            "usd_por_mil_comentarios": 0.0, "hardware": "notebook, CPU", "notas": "línea base sin IA"}
+            "usd_por_mil_comentarios": 0.0, "hardware": "notebook, CPU", "notas": "línea base sin LLM"}
     (args.entrega / "costo.json").write_text(json.dumps(cost, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Listo en {elapsed}s: {df['narrativa'].nunique() - 1} grupos, {len(set(groups.values()))} grupos coordinados")
 

@@ -2,7 +2,7 @@
 
 Pipeline de un solo comando que descubre narrativas, asigna cada comentario a su narrativa o al ruido,
 estima su postura y su origen, y detecta operaciones coordinadas. Corre en una notebook sin GPU,
-**sin datos de entrenamiento del set final** y con IA solo en ~40 llamadas puntuales (opcional).
+**sin datos de entrenamiento del set final** y con LLM solo en ~40 llamadas puntuales (opcional).
 
 ## Cómo correrlo
 
@@ -16,11 +16,11 @@ make humo && make test        # datos de juguete y tests (no necesitan el set re
 make test-sucio               # datos rotos a propósito: el pipeline no se cae
 ```
 
-- **IA opcional y apagada por defecto** (`llm.activo: false`). Para prenderla: `llm.activo: true`, exportá
+- **LLM opcional y apagado por defecto** (`llm.activo: false`). Usamos modelos locales de IA (embeddings, agrupamiento, grafos); el LLM es opcional y va apagado por defecto. Para prenderla: `llm.activo: true`, exportá
   `LLM_API_KEY` y completá `llm.base_url` / `llm.modelo` (cualquier API compatible con OpenAI). Corte rápido si la
   API falla (timeout 20 s, 2 reintentos, 2 fallas seguidas → respaldo determinista); las respuestas truncadas o vacías
   se descartan con un WARNING y no se guardan en caché.
-- **Reproducible:** semillas fijas en todo. Con la IA prendida, las respuestas quedan en `cache/llm/<set>/`
+- **Reproducible:** semillas fijas en todo. Con el LLM prendido, las respuestas quedan en `cache/llm/<set>/`
   (se commitea `cache/llm/final/`). **Sin clave**, el pipeline lee ese caché y no hace llamadas de red. Lo probamos de
   punta a punta con un servidor falso: los 3 CSV salen byte-idénticos y `costo.json` declara los mismos tokens y USD,
   con `modo_llm: desde_cache`. `modo_llm` vale `completo`, `desde_cache`, `degradado` (falló la API o faltaba caché) o
@@ -76,11 +76,11 @@ que orientan la postura. `e10_reporte` escribe el HTML. No hay `e05`.
 
 ## Costo y escala
 
-Medido en esta notebook (12 núcleos, 15 GB, sin GPU, sin IA): en frío se recalculan los embeddings
+Medido en esta notebook (12 núcleos, 15 GB, sin GPU, sin LLM): en frío se recalculan los embeddings
 e5 (domina el tiempo); en caliente se reutiliza el caché por texto único. Son los `segundos`,
 `ram_pico_gb` y `almacenamiento_mb` del `costo.json` de cada corrida.
 
-| Set | Comentarios | s frío | s caliente | RAM pico (GB) | DuckDB (MB) | Parquet (MB) | Entrada (MB) | USD cómputo/mil | USD IA |
+| Set | Comentarios | s frío | s caliente | RAM pico (GB) | DuckDB (MB) | Parquet (MB) | Entrada (MB) | USD cómputo/mil | USD LLM |
 |---|---|---|---|---|---|---|---|---|---|
 | Práctica | 200.000 (14 días) | 570 | 31 | 3,0 | 49 | 14 | 5 | 0,0005 | 0 |
 | Pseudo-final | 98.312 (10 días) | 410 | 20 | 2,4 | 23 | 7 | 3 | 0,0008 | 0 |
@@ -99,9 +99,9 @@ día. Para millones por día: micro-batch en la ingesta, el caché de embeddings
 tiempo (no todos contra todos; en publicaciones virales los pares crecen al cuadrado) y el Parquet
 pasa a almacenamiento de objetos.
 
-`costo.json` se arma solo en cada corrida: segundos por etapa, hardware, tokens y USD de IA. Los
+`costo.json` se arma solo en cada corrida: segundos por etapa, hardware, tokens y USD de LLM. Los
 tokens incluyen el razonamiento oculto que factura el proveedor, y las respuestas que salen del
-caché cuentan lo que costó producirlas, así una re-corrida no declara costo cero. Con IA son unas
+caché cuentan lo que costó producirlas, así una re-corrida no declara costo cero. Con LLM son unas
 40 llamadas y ~22k tokens, y el `usd_por_mil_comentarios` queda en milésimas de centavo; su costo
 depende de la cantidad de **narrativas**, no de comentarios. Claves extra: `ram_pico_gb`,
 `almacenamiento_mb` (duckdb/parquet/entrada), `comentarios_por_segundo`,
@@ -119,27 +119,27 @@ en vez de cambiar de motor a escondidas.
 | Corrida | Narrativas /30 | Coordinación /25 | Total /55 |
 |---|---|---|---|
 | Línea base del repo | — | — | ~17 |
-| Nuestra solución, sin IA | 27,49 | 24,43 | **51,92** |
-| Pseudo-final sin IA (primeros 10 días, 75% de las publicaciones) | 27,53 | 20,04 | **47,57** |
-| Versión anterior, sin IA (antes del filtro de cohesión y `gamma` 0,3) | 27,63 | 21,15 | 48,78 |
-| Versión anterior, con IA | 28,22 | 21,15 | 49,37 |
+| Nuestra solución, sin LLM | 27,49 | 24,43 | **51,92** |
+| Pseudo-final sin LLM (primeros 10 días, 75% de las publicaciones) | 27,53 | 20,04 | **47,57** |
+| Versión anterior, sin LLM (antes del filtro de cohesión y `gamma` 0,3) | 27,63 | 21,15 | 48,78 |
+| Versión anterior, con LLM | 28,22 | 21,15 | 49,37 |
 
 Práctica: B-cubed de narrativas 0,98 · ruido F1 0,985 · **postura macro-F1 0,65** · origen de emergentes 0,99 ·
 coordinación P 1,00 / R 0,965 / F1 0,98 · grupos 0,965. Pseudo-final: postura 0,70, coordinación F1 0,83, grupos 0,74.
 El pseudo-final (`herramientas/pseudo_final.py`) mide generalización con menos datos que el set final real.
 
-La fila "con IA" es de la configuración anterior y no se volvió a medir. Además, las corridas con `gemini-3.8-flash`
+La fila "con LLM" es de la configuración anterior y no se volvió a medir. Además, las corridas con `gemini-3.8-flash`
 salieron truncadas: el razonamiento oculto se comía el `max_tokens` de 120–150. Eso ya está corregido (1000 tokens,
-`reasoning_effort: low`, y las respuestas truncadas se descartan), pero la mejora con IA no está medida en esta versión.
+`reasoning_effort: low`, y las respuestas truncadas se descartan), pero la mejora con LLM no está medida en esta versión.
 
 ## Limitaciones conocidas
 
 - **Postura (0,65 en práctica).** Los bandos de cada narrativa salen casi perfectos: dentro de una narrativa, los
   comentarios quedan casi todos bien separados o casi todos al revés. Lo que falla es decidir qué bando "rechaza".
-  Sin IA, esa decisión sale de votos: refutación explícita, negación y cuentas coordinadas. Cuando la afirmación misma
+  Sin LLM, esa decisión sale de votos: refutación explícita, negación y cuentas coordinadas. Cuando la afirmación misma
   está formulada en negativo ("faltan médicos", "no quedan puestos"), el voto de negación apunta al revés: en la versión
   anterior se invertían 4 de las 13 narrativas de práctica. Como cada narrativa es todo o nada, el puntaje de postura del set final tiene mucha
-  varianza. Es el lugar donde más puede aportar la IA.
+  varianza. Es el lugar donde más puede aportar el LLM.
 - **Coordinación con menos datos.** En el pseudo-final (10 días) se pierde un cuarto de las cuentas de campaña
   (R 0,74): las campañas chicas co-actúan pocas veces y no llegan a la evidencia mínima. El filtro de cohesión saca
   los grupos falsos de cuentas genuinas hiperactivas (7 en práctica y 7 en el pseudo-final), pero no recupera las
