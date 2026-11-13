@@ -233,8 +233,16 @@ def recolectar(db, cfg, costo, nombre_set: str) -> dict:
                 post = {"titular": str(titular.get(pid, pid)),
                         "pts": [{"m": round((int(r.ts) - t_p) / 60, 1), "c": r.cuenta_id}
                                 for r in gp.itertuples()]}
-        ej_g = (gn.sort_values("conf", ascending=False).drop_duplicates("texto")["texto"]
-                .head(3).map(lambda s: _recortar(s, 160)).tolist())
+        def _top_textos(sub, k):
+            ag = (sub.groupby("texto").agg(n=("comentario_id", "size"), conf=("conf", "max"))
+                  .sort_values(["n", "conf", "texto"], ascending=[False, False, True]))
+            return ag.index.tolist()[:k]
+
+        top_lab = empuja[0]["id"] if empuja else ""
+        ej_txt = _top_textos(gn[gn["narrativa"] == top_lab], 3)
+        if len(ej_txt) < 3:
+            ej_txt += _top_textos(gn[gn["narrativa"] != top_lab], 3 - len(ej_txt))
+        ej_g = [_recortar(s, 160) for s in ej_txt]
         tarjetas.append({"id": gid, "n": len(ctas), "nx": nx_txt, "nx_v":
                          (float(diag.loc[gid, "coh_obs"] / diag.loc[gid, "coh_nulo"])
                           if len(diag) and gid in diag.index and diag.loc[gid, "coh_nulo"] else 0.0),
@@ -247,6 +255,7 @@ def recolectar(db, cfg, costo, nombre_set: str) -> dict:
                                                       uso_total, umbral_tag)),
                          "post": post, "ej": ej_g,
                          "top_pct": float(empuja[0]["pct"]) if empuja else 0.0,
+                         "n_otras": int(gn["narrativa"].nunique() - 1) if len(gn) else 0,
                          "top_lab": empuja[0]["id"] if empuja else "",
                          "top_et": empuja[0]["etiqueta"] if empuja else ""})
 
@@ -751,7 +760,9 @@ function paso4(gid) {{
   $('#k4').textContent = 'EVIDENCIA · ' + t.id;
   $('#t4').textContent = t.top_pct >= 50
     ? 'El grupo ' + t.id + ' publica el ' + fmtN(t.top_pct, 1) + ' % de sus comentarios en «' + t.top_et + '»'
-    : 'Evidencia del grupo ' + t.id;
+    : 'El grupo ' + t.id + ' reparte su actividad: ' + fmtN(t.top_pct, 1) + ' % en «' + t.top_et + '»' +
+      (t.n_otras === 0 ? '' : t.n_otras === 1 ? ' y el resto en otra narrativa'
+                                             : ' y el resto en otras ' + t.n_otras + ' narrativas');
   $('#nums4').innerHTML =
     [[t.nx, 'co-actúan vs azar'],
      [fmtN(t.posts), (t.posts === 1 ? 'publicación compartida' : 'publicaciones compartidas') + ' (≤ ' + fmtN(D.delta_min, 1) + ' min)'],
