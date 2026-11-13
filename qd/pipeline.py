@@ -31,6 +31,7 @@ ETAPAS = [
     "e07_origen",
     "e09_exporta",
     "e10_reporte",    # reportes/<set>.html para la demo (no va en entrega/)
+    "e11_demo",       # reportes/<set>_demo.html: tablero de presentación (no va en entrega/)
 ]
 
 log = logging.getLogger("qd")
