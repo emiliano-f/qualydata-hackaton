@@ -378,7 +378,10 @@ nav {{ display:flex; gap:8px; padding:4px 20px 10px; }}
 <section class="paso" id="p4" hidden><h2 class="pt" id="t4"></h2><div class="pc">
 <div class="gbts">{grupos_btn}</div><div id="p4body"></div>
 <p class="pie">Coordinación anómala detectada: una alerta para un analista, no prueba de manipulación.</p></div></section>
-<section class="paso" id="p5" hidden><h2 class="pt">Costo</h2><div class="pc"><p class="pie">próximamente</p></div></section>
+<section class="paso" id="p5" hidden><h2 class="pt">{_esc(titulo5)}</h2><div class="pc">
+<div class="kpis">{''.join(f'<div class="kpi"><div class="v">{v}</div><div class="k">{k}</div></div>' for v, k in (x.split("|") for x in kpis5))}</div>
+<div id="g5" class="graf" style="height:280px"></div>
+<p class="pie">{_esc(notas5)}</p></div></section>
 </main>
 <div id="tt"></div>
 <script>
@@ -442,7 +445,7 @@ function dibujar(n) {{
   if (n === 3) paso3();
   if (n === 4) paso4(sel.tipo === 'grupo' ? sel.id :
     ((D.tarjetas.reduce((a, b) => (b.nx_v > ((a || {{}}).nx_v || 0) ? b : a), null) || {{}}).id));
-  /* el paso 5 se agrega en el commit siguiente */
+  if (n === 5) paso5();
 }}
 
 function paso2() {{
@@ -537,6 +540,15 @@ function paso4(gid) {{
   Plotly.react('g4', [{{ x:t.post.pts.map(p => p.m), y:t.post.pts.map(p => p.c), mode:'markers',
     type:'scatter', marker:{{ size:7, color:css('--apoya') }},
     hovertemplate:'%{{y}} · +%{{x}} min<extra></extra>' }}], L4, CFG);
+}}
+
+function paso5() {{
+  const L = base(); L.margin.l = 120;
+  L.xaxis.title = {{ text:'segundos' }}; L.yaxis.autorange = 'reversed';
+  L.showlegend = true; L.legend = {{ orientation:'h', y:-0.15 }};
+  Plotly.react('g5', [{{ x:Object.values(D.etapas), y:Object.keys(D.etapas), type:'bar',
+    orientation:'h', name:'segundos por etapa', marker:{{ color:css('--apoya') }},
+    hovertemplate:'%{{y}}: %{{x:.1f}} s<extra></extra>' }}], L, CFG);
 }}
 
 aplicarHash();
