@@ -3,7 +3,7 @@
 Escribe reportes/<set>.html (no va en entrega/). Secciones:
   1. Encabezado con indicadores del set y de la corrida.
   2. Qué circula: tabla de narrativas (postura, origen, cuentas coordinadas, ejemplos).
-  3. Desde cuándo: área apilada por día (top 8 + "Otras") con el origen de las emergentes.
+  3. Desde cuándo: área apilada por día (top 8 + emergentes + "Otras") con el origen de las emergentes.
   4. Quién la empuja: una tarjeta por grupo coordinado (cohesión vs nulo, narrativas, ritmo
      horario y evidencia: posts compartidos, respuestas mutuas, hashtags raros).
   5. Costo y escala: costo.json aplanado y segundos por etapa.
@@ -28,8 +28,10 @@ from qd.config import obtener
 log = logging.getLogger("qd")
 SALIDAS: list = []
 TZ = timezone(timedelta(hours=-3))
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
-SERIES_OSC = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"]
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948",
+          "#0f9fb5", "#8c5a3c", "#8a9a1b", "#b04fc0"]
+SERIES_OSC = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767",
+              "#22b3c9", "#a87252", "#a3b52a", "#c66ad6"]
 GRIS = "#9a9890"
 HASHTAG_RE = re.compile(r"#\w{3,}")
 
@@ -127,39 +129,48 @@ def datos_reporte(ctx) -> dict:
     titulos = dict(zip(narr["narrativa"], narr["titulo"])) if len(narr) else {}
     frases = (dict(zip(narr["narrativa"], narr["frases_clave"]))
               if len(narr) and "frases_clave" in narr else {})
-    color_n = {lab: top.index(lab) if lab in top else -1 for lab in orden}
+
+    # ts_origen y flag "emergente" por narrativa (una pasada; se reusa en la tabla)
+    idx_o = narr.set_index("narrativa")["ts_origen"] if len(narr) else pd.Series(dtype=float)
+    ts_o_map, emergente = {}, {}
+    for lab in orden:
+        g = nar[nar["narrativa"] == lab]
+        t_o = (int(idx_o[lab]) if lab in idx_o.index and pd.notna(idx_o[lab])
+               else int(g["ts"].min()))
+        ts_o_map[lab] = t_o
+        emergente[lab] = (t_o - t0) > 0.1 * span
+    emerg = {lab: ts_o_map[lab] for lab in orden if emergente[lab]}
+    mostradas = top + [lab for lab in orden if emergente[lab] and lab not in top]
+    color_n = {lab: mostradas.index(lab) % len(SERIES) if lab in mostradas else -1
+               for lab in orden}
 
     # --- serie por día
     nar_v = nar[nar["narrativa"].isin(orden)].copy()
-    nar_v["serie"] = np.where(nar_v["narrativa"].isin(top), nar_v["narrativa"], "Otras")
+    nar_v["serie"] = np.where(nar_v["narrativa"].isin(mostradas), nar_v["narrativa"], "Otras")
     nar_v["b"] = (nar_v["ts"] - t0) // 86400
     nb = int((t1 - t0) // 86400) + 1
     tab = (nar_v.groupby(["b", "serie"]).size().unstack(fill_value=0)
            .reindex(range(nb), fill_value=0))
     x = [_fecha(t0 + i * 86400) for i in range(nb)]
     series = [{"id": s, "titulo": titulos.get(s, "Otras narrativas" if s == "Otras" else s),
-               "y": tab[s].astype(int).tolist() if s in tab else [0] * nb}
-              for s in top + (["Otras"] if "Otras" in tab.columns else [])]
+               "y": tab[s].astype(int).tolist() if s in tab else [0] * nb,
+               "ci": color_n.get(s, -1)}
+              for s in mostradas + (["Otras"] if "Otras" in tab.columns else [])]
 
     # --- tabla de narrativas
-    filas, origenes, emerg = [], [], {}
+    filas, origenes = [], []
     for lab in orden:
         g = nar[nar["narrativa"] == lab]
-        fila_n = narr[narr["narrativa"] == lab]
-        ts_o = (int(fila_n["ts_origen"].iloc[0]) if len(fila_n) and pd.notna(fila_n["ts_origen"].iloc[0])
-                else int(g["ts"].min()))
-        emergente = (ts_o - t0) > 0.1 * span
         pct = g["postura"].value_counts(normalize=True)
         ej = (g.sort_values("conf", ascending=False).drop_duplicates("texto")["texto"]
               .head(3).map(lambda s: str(s)[:200]).tolist())
         filas.append({"id": lab, "titulo": titulos.get(lab, lab), "i": color_n[lab], "n": len(g),
                       "frases": str(frases.get(lab, "")).replace("|", " · "),
                       "apoya": float(pct.get("apoya", 0.0)), "rechaza": float(pct.get("rechaza", 0.0)),
-                      "origen": _f(ts_o), "emergente": emergente,
+                      "origen": _f(ts_o_map[lab]), "emergente": emergente[lab],
                       "coord": float((g["grupo"] != "").mean()), "ejemplos": ej})
-        if emergente:
-            emerg[lab] = ts_o
-            origenes.append({"x": _f(ts_o), "id": lab, "i": color_n[lab],
+        if emergente[lab]:
+            origenes.append({"x": _f(ts_o_map[lab]), "id": lab, "i": color_n[lab],
                              "titulo": titulos.get(lab, lab)[:30]})
 
     # --- tarjetas de grupos coordinados
@@ -239,7 +250,7 @@ def _plural(n: int, sing: str, plur: str) -> str:
 
 
 def _var_color(i: int) -> str:
-    return f"var(--series-{i + 1})" if i >= 0 else "var(--otras)"
+    return f"var(--series-{(i % len(SERIES)) + 1})" if i >= 0 else "var(--otras)"
 
 
 def _tabla_narr(filas: list) -> str:
@@ -355,7 +366,7 @@ ul.ej {{ font-style:italic; color:var(--text-secondary); }}
 {ocultas}
 
 <h2>2 · Desde cuándo</h2>
-<p class="nota">Comentarios por día y narrativa (las 8 más grandes; el resto en «Otras»). Las líneas punteadas marcan el origen estimado de cada emergente mostrada (en el color de su serie las del top; en gris el resto).</p>
+<p class="nota">Comentarios por día y narrativa (las 8 más grandes y todas las emergentes; el resto en «Otras»). Las líneas punteadas marcan el origen estimado de cada emergente, en el color de su serie.</p>
 <div id="g_tiempo" class="graf"></div>
 
 <h2>3 · Quién la empuja</h2>
@@ -382,18 +393,18 @@ const base = () => ({{ paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0
   margin:{{ l:56, r:16, t:10, b:46 }}, hoverlabel:{{ bgcolor:css('--surface-2'), font:{{ color:css('--text-primary') }} }},
   xaxis:{{ gridcolor:css('--grid'), zeroline:false, linecolor:css('--grid') }},
   yaxis:{{ gridcolor:css('--grid'), zeroline:false, rangemode:'tozero' }} }});
-const color = (i, id) => id === 'Otras' ? css('--otras') : css('--series-' + (i + 1));
+const color = (ci, id) => id === 'Otras' ? css('--otras') : css('--series-' + (ci + 1));
 function dibujar() {{
   const sup = css('--surface-1');
-  const tr = D.series.map((s, i) => ({{ x:D.x, y:s.y, name:s.id + ' · ' + s.titulo.slice(0, 42), type:'scatter', mode:'lines',
-    stackgroup:'uno', line:{{ width:1.5, color:sup }}, fillcolor:color(i, s.id),
+  const tr = D.series.map(s => ({{ x:D.x, y:s.y, name:s.id + ' · ' + s.titulo.slice(0, 42), type:'scatter', mode:'lines',
+    stackgroup:'uno', line:{{ width:1.5, color:sup }}, fillcolor:color(s.ci, s.id),
     hovertemplate:'<b>' + s.id + '</b> ' + s.titulo.replace(/</g, '&lt;') + '<br>%{{x}}: %{{y}} comentarios<extra></extra>' }}));
   const L1 = base();
   L1.yaxis.title = {{ text:'comentarios por día' }}; L1.hovermode = 'x unified'; L1.showlegend = true;
   L1.legend = {{ orientation:'h', y:-0.18, font:{{ color:css('--text-primary') }} }}; L1.margin.b = 110;
   L1.margin.t = Math.max(28, 14 * Math.ceil(D.origenes.length / 7) + 14);  /* lugar para las anotaciones de origen */
   L1.shapes = D.origenes.map(o => ({{ type:'line', x0:o.x, x1:o.x, yref:'paper', y0:0, y1:1,
-    line:{{ dash:'dash', width:2.5, color: o.i >= 0 ? css('--series-' + (o.i + 1)) : css('--otras') }} }}));
+    line:{{ dash:'dash', width:2.5, color:css('--series-' + (o.i + 1)) }} }}));
   L1.annotations = D.origenes.map((o, k) => ({{ x:o.x, yref:'paper', y:1.0 - 0.08 * (k % 7),
     text:'origen ' + o.id + ' · ' + o.titulo, showarrow:false, yanchor:'bottom',
     bgcolor:css('--surface-1'), borderwidth:0, borderpad:2,
