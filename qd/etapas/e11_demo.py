@@ -19,6 +19,7 @@ import base64
 import html
 import json
 import logging
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -32,11 +33,10 @@ PALETA = ["#CC6677", "#6a5acd", "#DDCC77", "#117733", "#88CCEE",
           "#882255", "#44AA99", "#999933", "#AA4499"]
 GRIS = "#6b7080"
 COLORES_GRUPO = ["#e8e8e8", "#f5d76e", "#4dd8e8", "#f0a0c8", "#a8d878", "#c898f0"]
-PASOS = ["Circula", "Apareció", "Empujan", "Lo sabemos", "Costo"]
+PASOS = ["Narrativas", "Emergentes", "Coordinación", "Evidencia", "Costo"]
 # Ámbar de acento de UI (etiquetas/emergentes); ningún color de PALETA es ámbar.
 AMBAR = "#E3B341"
-KICKERS = ["HALLAZGO PRINCIPAL", "DETECCIÓN DE EMERGENTES", "GRUPOS COORDINADOS",
-           "EVIDENCIA", "COSTO DE LA CORRIDA"]
+KICKERS = ["NARRATIVAS", "EMERGENTES", "COORDINACIÓN", "EVIDENCIA", "COSTO DE LA CORRIDA"]
 _FONTS = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 
 
@@ -370,13 +370,13 @@ def render(d: dict) -> str:
              ((f'{_num(tot_mb, 1)} MB|duckdb {_num(alm.get("duckdb", 0), 1)} · '
                f'parquet {_num(alm.get("parquet", 0), 1)} · entrada {_num(alm.get("entrada", 0), 1)} MB')
               if alm else '-|almacenamiento'),
-             f'USD {_usd(costo.get("usd_ia"))}|IA ({_esc(costo.get("modo_llm", ""))})']
+             f'USD {_usd(costo.get("usd_ia"))}|LLM ({_esc(costo.get("modo_llm", ""))})']
     proy = (costo.get("proyeccion_1M_por_dia") or {})
     proy_txt = ""
     if proy and proy.get("horas") is not None:
         proy_txt = ("estimación (extrapolación lineal): "
                     + f"{float(proy['horas']):.2g}".replace(".", ",") + " h para 1M/día")
-    notas5 = "; ".join(x for x in [costo.get("notas", ""), proy_txt,
+    notas5 = "; ".join(x for x in [re.sub(r"sin\s+IA\b", "LLM apagado", costo.get("notas", "")), proy_txt,
                                    "corrida en caliente: etapas reutilizadas, no representa el "
                                    "costo en frío" if d["caliente"] else ""] if x)
     grupos_btn = "".join(f'<button class="gbtn" data-g="{_esc(t["id"])}">{_esc(t["id"])}</button>'
@@ -647,7 +647,7 @@ function paso2() {{
     type:'scatter', mode:'lines', stackgroup:'uno', line:{{ width:1, color:css('--bg') }},
     fillcolor:colorDe(filaDe(lab).i) }}));
   tr.push({{ x:D.x, y:resto, name:'resto', type:'scatter', mode:'lines', stackgroup:'uno',
-    line:{{ width:1, color:css('--bg') }}, fillcolor:css('--otras'), opacity:.55 }});
+    line:{{ width:1, color:css('--bg') }}, fillcolor:'rgba(107,112,128,.25)' }});
   const fISO = iso => +iso.slice(8, 10) + '-' + MESES[+iso.slice(5, 7) - 1];
   const L = base();
   L.yaxis.title = {{ text:'comentarios por día' }};
@@ -688,11 +688,12 @@ function paso2() {{
 
 function paso3() {{
   const g = D.grafo;
-  const ei = {{ x:[], y:[] }};
+  const ei = {{ x:[], y:[] }}, en = {{ x:[], y:[] }};
   // solo aristas intra-cluster: dentro de un grupo o entre normales; las que cruzan se omiten
   for (const [a, b] of g.aristas) {{
     if ((g.nodos[a].g || '') !== (g.nodos[b].g || '')) continue;
-    ei.x.push(g.nodos[a].x, g.nodos[b].x, null); ei.y.push(g.nodos[a].y, g.nodos[b].y, null);
+    const e = g.nodos[a].g ? ei : en;
+    e.x.push(g.nodos[a].x, g.nodos[b].x, null); e.y.push(g.nodos[a].y, g.nodos[b].y, null);
   }}
   const COLG = ['#e8e8e8', '#f5d76e', '#4dd8e8', '#f0a0c8', '#a8d878', '#c898f0'];
   const SYMS = ['circle', 'square', 'diamond', 'triangle-up', 'cross', 'star'];
@@ -700,8 +701,10 @@ function paso3() {{
   D.tarjetas.forEach((t, i) => {{ colG[t.id] = COLG[i % COLG.length]; symG[t.id] = SYMS[i % SYMS.length]; }});
   const porGrupo = {{}};
   g.nodos.forEach(nd => (porGrupo[nd.g || 'normal'] = porGrupo[nd.g || 'normal'] || []).push(nd));
-  const tr = [{{ x:ei.x, y:ei.y, mode:'lines', type:'scatter', hoverinfo:'skip',
-    line:{{ width:.5, color:'rgba(140,150,170,.28)' }}, showlegend:false }}];
+  const tr = [{{ x:en.x, y:en.y, mode:'lines', type:'scatter', hoverinfo:'skip',
+    line:{{ width:.5, color:'rgba(140,150,170,.07)' }}, showlegend:false }},
+    {{ x:ei.x, y:ei.y, mode:'lines', type:'scatter', hoverinfo:'skip',
+    line:{{ width:.6, color:'rgba(140,150,170,.3)' }}, showlegend:false }}];
   const ordenLey = ['normal', ...D.tarjetas.map(t => t.id)];
   for (const gid of ordenLey) {{
     const ns = porGrupo[gid];
@@ -710,9 +713,9 @@ function paso3() {{
       name:gid === 'normal' ? 'muestra de cuentas no coordinadas' : gid,
       text:ns.map(n => n.c + (n.g ? ' · ' + n.g : '') + (n.tip ? '<br>«' + n.tip.replace(/</g,'&lt;') + '»' : '')),
       hovertemplate:'%{{text}}<extra></extra>',
-      marker:{{ size:gid === 'normal' ? 4 : 9, color:gid === 'normal' ? css('--otras') : colG[gid],
+      marker:{{ size:gid === 'normal' ? 3 : 9, color:gid === 'normal' ? css('--otras') : colG[gid],
         symbol:gid === 'normal' ? 'circle' : symG[gid],
-        opacity:gid === 'normal' ? .4 : .95,
+        opacity:gid === 'normal' ? .35 : .95,
         line:gid === 'normal' ? undefined : {{ width:1, color:css('--bg') }} }} }});
   }}
   const L = base();
@@ -767,12 +770,12 @@ function paso4(gid) {{
   Plotly.react('h4', [{{ z:[t.horas, D.horas_ng], y:[t.id, 'resto'], x:[...Array(24).keys()],
     type:'heatmap', showscale:true, colorscale:'Viridis',
     colorbar:{{ thickness:10, tickfont:{{ size:14 }}, title:{{ text:'% com.', font:{{ size:14 }} }} }} }}], Lh, CFG);
-  const L4 = base(); L4.margin = {{ l:10, r:10, t:4, b:34 }};
-  L4.xaxis = {{ title:{{ text:'minutos desde el primero', font:{{ size:14 }} }},
+  const L4 = base(); L4.margin = {{ l:10, r:10, t:4, b:52 }};
+  L4.xaxis = {{ title:{{ text:'minutos desde el primero', font:{{ size:14 }}, standoff:22 }},
     gridcolor:css('--borde'), zeroline:false }};
   L4.yaxis = {{ type:'category', showticklabels:false, showgrid:false, ticks:'' }};
   Plotly.react('g4', [{{ x:t.post.pts.map(p => p.m), y:t.post.pts.map(p => p.c), mode:'markers',
-    type:'scatter', marker:{{ size:7, color:css('--apoya') }},
+    type:'scatter', marker:{{ size:14, color:css('--apoya') }},
     hovertemplate:'%{{y}} · +%{{x}} min<extra></extra>' }}], L4, CFG);
 }}
 
