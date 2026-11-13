@@ -370,7 +370,8 @@ nav {{ display:flex; gap:8px; padding:4px 20px 10px; }}
 <div class="barras">{''.join(filas_p1)}</div>
 <p class="pie">Los bandos se separan bien; decidir cuál apoya falla en algunas narrativas (macro-F1 0,65). · ruido: {100 * d['ruido']:.0f}% de los comentarios.</p>
 </div></section>
-<section class="paso" id="p2" hidden><h2 class="pt">Apareció</h2><div class="pc"><p class="pie">próximamente</p></div></section>
+<section class="paso" id="p2" hidden><h2 class="pt" id="t2"></h2><div class="pc"><div id="g2" class="graf"></div>
+<p class="pie">La fecha de origen es una estimación.</p></div></section>
 <section class="paso" id="p3" hidden><h2 class="pt">Empujan</h2><div class="pc"><p class="pie">próximamente</p></div></section>
 <section class="paso" id="p4" hidden><h2 class="pt">Lo sabemos</h2><div class="pc"><p class="pie">próximamente</p></div></section>
 <section class="paso" id="p5" hidden><h2 class="pt">Costo</h2><div class="pc"><p class="pie">próximamente</p></div></section>
@@ -432,7 +433,38 @@ document.addEventListener('keydown', e => {{
 }});
 window.addEventListener('hashchange', aplicarHash);
 
-function dibujar(n) {{ /* los pasos 2–5 se agregan en commits siguientes */ }}
+function dibujar(n) {{
+  if (n === 2) paso2();
+  /* los pasos 3–5 se agregan en commits siguientes */
+}}
+
+function paso2() {{
+  const em = D.emerg[0];
+  if (em) $('#t2').textContent = '«' + filaDe(em).etiqueta + '» apareció el ' +
+    filaDe(em).origen_fecha + ' y llegó a ' + (D.max_dia[em] || 0) + ' comentarios por día';
+  else $('#t2').textContent = 'Sin narrativas emergentes en este set';
+  const shown = sel.tipo === 'nar' && D.serie_dia[sel.id] ? [sel.id] : D.emerg;
+  const enSerie = new Set(shown);
+  const resto = D.x.map((_, k) => Object.entries(D.serie_dia).reduce((a, [lab, y]) =>
+    a + (enSerie.has(lab) ? 0 : y[k]), 0));
+  const tr = shown.map(lab => ({{ x:D.x, y:D.serie_dia[lab], name:lab + ' · ' + filaDe(lab).etiqueta.slice(0, 40),
+    type:'scatter', mode:'lines', stackgroup:'uno', line:{{ width:1, color:css('--bg') }},
+    fillcolor:colorDe(filaDe(lab).i) }}));
+  tr.push({{ x:D.x, y:resto, name:'resto', type:'scatter', mode:'lines', stackgroup:'uno',
+    line:{{ width:1, color:css('--bg') }}, fillcolor:css('--otras'), opacity:.55 }});
+  const L = base();
+  L.yaxis.title = {{ text:'comentarios por día' }};
+  L.xaxis.rangeslider = {{ thickness:.08 }};
+  L.showlegend = true; L.legend = {{ orientation:'h', y:-0.16 }};
+  L.shapes = shown.filter(l => D.origenes[l]).map(lab => ({{ type:'line',
+    x0:D.origenes[lab].slice(0, 10), x1:D.origenes[lab].slice(0, 10), yref:'paper', y0:0, y1:1,
+    line:{{ dash:'dash', width:2, color:colorDe(filaDe(lab).i) }} }}));
+  L.annotations = shown.filter(l => D.origenes[l]).map((lab, k) => ({{
+    x:D.origenes[lab].slice(0, 10), yref:'paper', y:1.0 - 0.09 * (k % 5), yanchor:'bottom',
+    text:'origen ' + lab, showarrow:false, bgcolor:css('--bg'), borderpad:2,
+    font:{{ size:11, color:css('--sec') }} }}));
+  Plotly.react('g2', tr, L, CFG);
+}}
 
 aplicarHash();
 </script></body></html>"""
