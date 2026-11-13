@@ -203,7 +203,7 @@ class Costo:
                    "hardware": f"{platform.processor() or platform.machine()}, {os.cpu_count()} núcleos, "
                                f"{psutil.virtual_memory().total//2**30} GB RAM, GPU: {gpu or 'no'}",
                    "almacenamiento": "DuckDB local + Parquet particionado por día",
-                   "notas": f"embeddings locales {modelo}; IA solo por clúster y en casos dudosos; modo_llm={s.modo}",
+                   "notas": f"embeddings locales {modelo}; LLM solo por clúster y en casos dudosos; modo_llm={s.modo}",
                    "desglose_segundos": s.etapas, "llamadas_llm": s.llamadas, "modo_llm": s.modo}, ...)
 ```
 
