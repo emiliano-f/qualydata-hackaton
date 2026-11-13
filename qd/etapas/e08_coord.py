@@ -504,7 +504,7 @@ def correr(ctx) -> None:
                     nuevas.append((cs, co, cn))
             validas = nuevas
             log.info("e08: fusión '%s': %d fusiones", fusion, len(pasa))
-            orden = orden_grupos({i: vc[0] for i, vc in enumerate(validas)}, cuentas)
+            orden = sorted(validas, key=lambda vc: (-len(vc[0]), min(cuentas[n] for n in vc[0])))
         else:
             orden = sorted(validas, key=lambda x: len(x[0]), reverse=True)
         for i, vc in enumerate(orden):
