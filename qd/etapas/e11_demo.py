@@ -82,13 +82,15 @@ def _num(x, dec=None) -> str:
 
 
 def _usd(x) -> str:
-    """es-AR: 2 decimales si >= 0,01; si no, 2 cifras significativas; 0 exacto -> '0'."""
+    """es-AR: 2 decimales si >= 0,01; si no, 2 cifras significativas sin ceros
+    de relleno ('0,0005', '0,000031'); 0 exacto -> '0'."""
     x = float(x or 0)
     if x == 0:
         return "0"
     if abs(x) >= 0.01:
         return _num(x, 2)
-    return _num(float(f"{x:.2g}"), 6)
+    sig = float(f"{x:.2g}")
+    return f"{sig:.10f}".rstrip("0").rstrip(".").replace(".", ",")
 
 
 def _plural(n: int, sing: str, plur: str) -> str:
@@ -362,10 +364,12 @@ def render(d: dict) -> str:
     titulo5 = (f"Procesar {_num(d['total'])} comentarios llevó {_num(costo.get('segundos', 0), 1)} s"
                + (f" y USD {_usd(usd_mil)} por mil" if usd_mil is not None else ""))
     alm = costo.get("almacenamiento_mb") or {}
+    tot_mb = alm.get("duckdb", 0) + alm.get("parquet", 0) + alm.get("entrada", 0)
     kpis5 = [f'{_num(costo.get("segundos", 0), 1)} s|tiempo total',
              f'{_num(costo.get("ram_pico_gb") or 0, 2) if costo.get("ram_pico_gb") is not None else "-"} GB|RAM pico',
-             (f'{_num(alm.get("duckdb", 0), 1)} / {_num(alm.get("parquet", 0), 1)} / '
-              f'{_num(alm.get("entrada", 0), 1)} MB|duckdb / parquet / entrada'),
+             ((f'{_num(tot_mb, 1)} MB|duckdb {_num(alm.get("duckdb", 0), 1)} · '
+               f'parquet {_num(alm.get("parquet", 0), 1)} · entrada {_num(alm.get("entrada", 0), 1)} MB')
+              if alm else '-|almacenamiento'),
              f'USD {_usd(costo.get("usd_ia"))}|IA ({_esc(costo.get("modo_llm", ""))})']
     proy = (costo.get("proyeccion_1M_por_dia") or {})
     proy_txt = ""
@@ -472,18 +476,21 @@ main {{ flex:1; min-height:0; }}
 .chip {{ font:600 14px var(--mono); background:var(--sup); border:1px solid var(--borde);
   border-radius:8px; padding:5px 12px; color:var(--mut); }}
 .chip b {{ color:var(--txt); }}
-.cards {{ overflow:hidden; display:flex; flex-direction:column; gap:8px; }}
+.cards {{ overflow:hidden; display:flex; flex-direction:column; gap:8px; min-height:0; }}
 .card {{ background:var(--sup); border:1px solid var(--borde); border-radius:10px;
-  padding:8px 14px; cursor:pointer; }}
+  padding:6px 12px; cursor:pointer; flex:1 1 0; min-height:0; overflow:hidden; }}
 .card:hover {{ border-color:var(--apoya); }}
 .card.dim {{ opacity:.3; }}
-.chead {{ font:600 15px var(--mono); color:var(--txt); }}
+.chead {{ font:600 15px var(--mono); color:var(--txt); white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }}
 .xchip {{ font:700 14px var(--mono); background:var(--sup2); border:1px solid var(--borde);
   border-radius:6px; padding:1px 8px; margin-left:6px; }}
-.cmain {{ font:16px/1.25 var(--serif); color:var(--sec); margin-top:4px; }}
-.csec {{ font:14px var(--mono); color:var(--mut); }}
+.cmain {{ font:16px/1.25 var(--serif); color:var(--sec); margin-top:3px; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }}
+.csec {{ font:14px var(--mono); color:var(--mut); white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }}
 .track {{ height:7px; background:var(--sup2); border-radius:4px; overflow:hidden;
-  display:flex; margin-top:5px; }}
+  display:flex; margin-top:5px; flex:none; }}
 .fill {{ height:100%; }}
 .p4top {{ display:flex; gap:16px; align-items:flex-start; flex:none; }}
 .nums {{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; flex:1; }}
@@ -703,9 +710,10 @@ function paso3() {{
   }}
   const L = base();
   L.xaxis = {{ visible:false }}; L.yaxis = {{ visible:false }};
-  L.showlegend = true; L.legend = {{ orientation:'h', y:-0.05,
+  L.showlegend = true; L.legend = {{ orientation:'h', x:0.5, xanchor:'center',
+    y:0.07, yanchor:'bottom', bgcolor:'rgba(11,13,18,.78)', borderpad:4,
     font:{{ size:14, family:"'JetBrains Mono',monospace" }} }};
-  L.margin = {{ l:8, r:8, t:8, b:40 }};
+  L.margin = {{ l:8, r:8, t:8, b:8 }};
   Plotly.react('g3', tr, L, CFG);
   const topG = D.tarjetas.reduce((a, b) => (b.nx_v > ((a || {{}}).nx_v || 0) ? b : a), null);
   const chips = $('#chips3');
@@ -746,9 +754,9 @@ function paso4(gid) {{
     '<div><div class="fl">«' + (t.post.titular || '').replace(/</g,'&lt;') + '» — un post, minuto a minuto</div><div id="g4" class="mini2"></div></div></div>' +
     '<div class="fl">comentarios del grupo</div><div class="coms">' +
     t.ej.slice(0, 3).map(x => '<div class="cq">«' + x.replace(/</g,'&lt;') + '»</div>').join('') + '</div>';
-  const Lh = base(); Lh.margin = {{ l:70, r:60, t:4, b:34 }};
+  const Lh = base(); Lh.margin = {{ l:70, r:60, t:4, b:52 }};
   Lh.xaxis = {{ tickmode:'array', tickvals:[0,3,6,9,12,15,18,21], tickfont:{{ size:14 }}, gridcolor:css('--borde'),
-    title:{{ text:'hora local (−03:00)', font:{{ size:14 }} }} }};
+    title:{{ text:'hora local (−03:00)', font:{{ size:14 }}, standoff:28 }} }};
   Plotly.react('h4', [{{ z:[t.horas, D.horas_ng], y:[t.id, 'resto'], x:[...Array(24).keys()],
     type:'heatmap', showscale:true, colorscale:'Viridis',
     colorbar:{{ thickness:10, tickfont:{{ size:14 }}, title:{{ text:'% com.', font:{{ size:14 }} }} }} }}], Lh, CFG);
