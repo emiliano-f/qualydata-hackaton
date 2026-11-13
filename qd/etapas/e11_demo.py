@@ -34,6 +34,9 @@ COLORES_GRUPO = ["#e8e8e8", "#f5d76e", "#4dd8e8", "#f0a0c8", "#a8d878", "#c898f0
 PASOS = ["Circula", "Apareció", "Empujan", "Lo sabemos", "Costo"]
 
 
+_MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+
 def _f(ts) -> str:
     return datetime.fromtimestamp(int(ts), tz=TZ).strftime("%Y-%m-%d %H:%M")
 
@@ -42,12 +45,27 @@ def _fecha(ts) -> str:
     return datetime.fromtimestamp(int(ts), tz=TZ).strftime("%Y-%m-%d")
 
 
+def _fcorta(ts) -> str:
+    d = datetime.fromtimestamp(int(ts), tz=TZ)
+    return f"{d.day}-{_MESES[d.month - 1]}"
+
+
 def _esc(x) -> str:
     return html.escape(str(x))
 
 
 def _num(x, dec=None) -> str:
     return (f"{x:,.{dec}f}" if dec is not None else f"{x:,}").replace(",", " ").replace(".", ",").replace(" ", ".")
+
+
+def _usd(x) -> str:
+    """es-AR: 2 decimales si >= 0,01; si no, 2 cifras significativas; 0 exacto -> '0'."""
+    x = float(x or 0)
+    if x == 0:
+        return "0"
+    if abs(x) >= 0.01:
+        return _num(x, 2)
+    return _num(float(f"{x:.2g}"), 6)
 
 
 def _plural(n: int, sing: str, plur: str) -> str:
@@ -138,7 +156,7 @@ def recolectar(db, cfg, costo, nombre_set: str) -> dict:
                       "frases": str(frases.get(lab, "")).replace("|", " · "), "i": color_n[lab],
                       "n": int(len(g)), "apoya": float(pct.get("apoya", 0.0)),
                       "rechaza": float(pct.get("rechaza", 0.0)), "origen": _f(ts_o[lab]),
-                      "origen_fecha": _fecha(ts_o[lab]), "emergente": emergente[lab],
+                      "origen_fecha": _fcorta(ts_o[lab]), "emergente": emergente[lab],
                       "coord": float((g["grupo"] != "").mean()), "ej": ej})
     max_dia = {}
     nar_v = nar[nar["narrativa"].isin(orden)].copy()
@@ -207,11 +225,15 @@ def recolectar(db, cfg, costo, nombre_set: str) -> dict:
                          "top_lab": empuja[0]["id"] if empuja else "",
                          "top_et": empuja[0]["etiqueta"] if empuja else ""})
 
-    # --- grafo de cuentas (posiciones precalculadas, seed fija)
+    # --- grafo de cuentas: un spring_layout(seed 42) por grupo, ubicado en un centro fijo
+    # (círculo ordenado por id de grupo); la muestra de normales ocupa el fondo con el suyo.
+    import math
+
     import networkx as nx
 
     coord_ctas = sorted(set(grupos["cuenta_id"])) if len(grupos) else []
     gid_de = dict(zip(grupos["cuenta_id"], grupos["grupo"]))
+    gids = sorted(set(grupos["grupo"])) if len(grupos) else []
     resto = sorted(set(cta["cuenta_id"]) - set(coord_ctas))
     rng = np.random.default_rng(42)
     muestra = sorted(rng.choice(resto, size=min(300, len(resto)), replace=False).tolist()) if resto else []
@@ -227,10 +249,29 @@ def recolectar(db, cfg, costo, nombre_set: str) -> dict:
             if u in idx_nodo and v in idx_nodo:
                 aristas.add(tuple(sorted((u, v))))
     aristas = sorted(aristas)
-    G = nx.Graph()
-    G.add_nodes_from(nodos)
-    G.add_edges_from(aristas)
-    pos = nx.spring_layout(G, seed=42)
+
+    def _layout(sub_nodos, sub_aristas, centro, radio):
+        if not sub_nodos:
+            return {}
+        if len(sub_nodos) == 1:
+            return {sub_nodos[0]: np.array(centro, dtype=float)}
+        g = nx.Graph()
+        g.add_nodes_from(sub_nodos)
+        g.add_edges_from(a for a in sub_aristas if a[0] in sub_nodos and a[1] in sub_nodos)
+        p = nx.spring_layout(g, seed=42)
+        pts = np.array([p[c] for c in sub_nodos])
+        esc = float(np.abs(pts).max()) or 1.0
+        return {c: np.array(centro) + p[c] / esc * radio for c in sub_nodos}
+
+    ng = max(len(gids), 1)
+    centros = {gid: (1.35 * math.cos(2 * math.pi * k / ng - math.pi / 2),
+                     1.35 * math.sin(2 * math.pi * k / ng - math.pi / 2))
+               for k, gid in enumerate(gids)}
+    pos = {}
+    for gid in gids:
+        pos.update(_layout(sorted(c for c in coord_ctas if gid_de[c] == gid),
+                           aristas, centros[gid], 0.42))
+    pos.update(_layout(muestra, aristas, (0.0, 0.0), 1.9))
     tip_de = {}
     if len(grupos):
         ej_cta = (df[df["cuenta_id"].isin(coord_ctas)]
@@ -246,7 +287,7 @@ def recolectar(db, cfg, costo, nombre_set: str) -> dict:
         "total": len(com), "dias": dias, "n_narr": len(orden), "n_emerg": len(emerg),
         "n_grupos": int(grupos["grupo"].nunique()) if len(grupos) else 0,
         "n_coord": int(len(grupos)), "ruido": float((df["narrativa"] == "").mean()),
-        "periodo": f"{_f(t0)} → {_f(t1)}", "x": x, "serie_dia": serie_dia,
+        "periodo": f"{_fcorta(t0)} → {_fcorta(t1)}", "x": x, "serie_dia": serie_dia,
         "filas": filas, "emerg": emerg, "origenes": {lab: _f(ts_o[lab]) for lab in emerg},
         "max_dia": max_dia, "tarjetas": tarjetas, "horas_ng": horas_ng,
         "grafo": grafo, "costo": costo,
@@ -258,26 +299,30 @@ def recolectar(db, cfg, costo, nombre_set: str) -> dict:
 def _frase1(d: dict) -> str:
     s = (f"En {d['dias']} días circularon {_plural(d['n_narr'], 'narrativa', 'narrativas')}; "
          f"{d['n_emerg']} aparecieron de golpe y {_plural(d['n_grupos'], 'grupo coordinado', 'grupos coordinados')} "
-         f"({_plural(d['n_coord'], 'cuenta', 'cuentas')})")
-    for t in sorted(d["tarjetas"], key=lambda t: -t["nx_v"]):
-        if t["top_pct"] >= 50 and t["top_et"]:
-            return s + f" concentran su actividad en «{_esc(t['top_et'])}»."
-    return s + "."
+         f"({_plural(d['n_coord'], 'cuenta', 'cuentas')}) actúan en bloque.")
+    cand = [t for t in d["tarjetas"] if t["top_pct"] >= 50 and t["top_et"]]
+    if cand:
+        t = max(cand, key=lambda t: (t["nx_v"], t["top_pct"]))
+        s += f' El grupo {t["id"]} concentra el {t["top_pct"]:.0f} % de su actividad en «{_esc(t["top_et"])}».'
+    return s
 
 
 def render(d: dict) -> str:
     from qd.etapas.e10_reporte import plotly_js
 
     payload = json.dumps(d, ensure_ascii=False, default=str)
+    n_max = max(1, d["filas"][0]["n"]) if d["filas"] else 1
     filas_p1 = []
     for r in d["filas"]:
         badge = ' <span class="badge">EMERGENTE</span>' if r["emergente"] else ""
-        filas_p1.append(f'''<div class="barr" data-nar="{_esc(r["id"])}" data-ej="{_esc(json.dumps(r["ej"][:2]))}">
+        pos_txt = (f"postura: {100 * r['apoya']:.0f} % apoya · {100 * r['rechaza']:.0f} % rechaza · "
+                   f"{100 * (1 - r['apoya'] - r['rechaza']):.0f} % sin bando")
+        filas_p1.append(f'''<div class="barr" data-nar="{_esc(r["id"])}" data-emerg="{1 if r["emergente"] else 0}"
+  data-n="{r["n"]}" data-ej="{_esc(json.dumps(r["ej"][:2]))}" data-pos="{_esc(pos_txt)}">
   <span class="sw" style="background:var(--c{r["i"] + 1})"></span>
-  <div class="barr-body"><div class="et">«{_esc(r["etiqueta"])}»{badge} <span class="nid">{_esc(r["id"])}</span></div>
-  <div class="fr">{_esc(r["frases"])}</div>
-  <div class="track"><div class="fill" style="width:{100 * r["n"] / max(1, d["filas"][0]["n"]):.1f}%;background:var(--c{r["i"] + 1})"></div></div></div>
-  <div class="post"><span class="ap" style="width:{50 * r["apoya"]:.0f}%"></span><span class="re" style="width:{50 * r["rechaza"]:.0f}%"></span></div>
+  <div class="et">«{_esc(r["etiqueta"])}» <span class="nid">{_esc(r["id"])}</span>{badge} <span class="fr">{_esc(r["frases"])}</span></div>
+  <div class="track"><div class="fill" style="width:{100 * r["n"] / n_max:.1f}%;background:var(--c{r["i"] + 1})"></div></div>
+  <div class="post"><span class="mid"></span><span class="ap" style="width:{min(50, 50 * r["apoya"]):.0f}%"></span><span class="re" style="width:{min(50, 50 * r["rechaza"]):.0f}%"></span></div>
   <div class="num">{_num(r["n"])}</div>
 </div>''')
     kpis = [(_num(d["total"]), "comentarios"), (d["dias"], "días"), (d["n_narr"], "narrativas"),
@@ -287,16 +332,20 @@ def render(d: dict) -> str:
     usd_mil = costo.get("usd_computo_por_mil")
     if usd_mil is not None:
         usd_mil = usd_mil + (costo.get("usd_por_mil_comentarios") or 0)
-    titulo5 = (f"Procesar {_num(d['total'])} comentarios llevó {costo.get('segundos', 0):.0f} s"
-               + (f" y USD {_num(usd_mil, 5)} por mil" if usd_mil is not None else ""))
+    titulo5 = (f"Procesar {_num(d['total'])} comentarios llevó {_num(costo.get('segundos', 0), 1)} s"
+               + (f" y USD {_usd(usd_mil)} por mil" if usd_mil is not None else ""))
     alm = costo.get("almacenamiento_mb") or {}
-    kpis5 = [f'{costo.get("segundos", 0):.0f} s|tiempo total',
-             f'{costo.get("ram_pico_gb", "-")} GB|RAM pico',
-             f'{alm.get("duckdb", "-")} / {alm.get("parquet", "-")} / {alm.get("entrada", "-")} MB|duckdb / parquet / entrada',
-             f'USD {costo.get("usd_ia", 0)}|IA ({_esc(costo.get("modo_llm", ""))})']
+    kpis5 = [f'{_num(costo.get("segundos", 0), 1)} s|tiempo total',
+             f'{_num(costo.get("ram_pico_gb") or 0, 2) if costo.get("ram_pico_gb") is not None else "-"} GB|RAM pico',
+             (f'{_num(alm.get("duckdb", 0), 1)} / {_num(alm.get("parquet", 0), 1)} / '
+              f'{_num(alm.get("entrada", 0), 1)} MB|duckdb / parquet / entrada'),
+             f'USD {_usd(costo.get("usd_ia"))}|IA ({_esc(costo.get("modo_llm", ""))})']
     proy = (costo.get("proyeccion_1M_por_dia") or {})
-    notas5 = "; ".join(x for x in [costo.get("notas", ""), "estimación (extrapolación lineal): "
-                                   f'{proy.get("horas", "-")} h para 1M/día' if proy else "",
+    proy_txt = ""
+    if proy and proy.get("horas") is not None:
+        proy_txt = ("estimación (extrapolación lineal): "
+                    + f"{float(proy['horas']):.2g}".replace(".", ",") + " h para 1M/día")
+    notas5 = "; ".join(x for x in [costo.get("notas", ""), proy_txt,
                                    "corrida en caliente: etapas reutilizadas, no representa el "
                                    "costo en frío" if d["caliente"] else ""] if x)
     grupos_btn = "".join(f'<button class="gbtn" data-g="{_esc(t["id"])}">{_esc(t["id"])}</button>'
@@ -330,20 +379,31 @@ nav {{ display:flex; gap:8px; padding:4px 20px 10px; }}
 .kpi .v {{ font-size:34px; font-weight:700; font-variant-numeric:tabular-nums; }}
 .kpi .v small {{ font-size:16px; color:var(--sec); }}
 .kpi .k {{ color:var(--sec); font-size:13px; }}
-.barras {{ overflow-y:auto; max-height:calc(100% - 190px); }}
-.barr {{ display:grid; grid-template-columns:14px 1fr 130px 80px; gap:10px; align-items:center;
-  padding:7px 10px; border-radius:8px; cursor:pointer; }}
+#p1 .pc {{ display:flex; flex-direction:column; }}
+.barras {{ flex:1; min-height:0; overflow:hidden; }}
+.barr, .barr-head {{ display:grid; grid-template-columns:14px 1fr 110px 150px 80px; gap:10px;
+  align-items:center; padding:3px 10px; border-radius:8px; }}
+.barr {{ cursor:pointer; height:30px; }}
 .barr:hover {{ background:var(--sup); }}
 .barr.dim {{ opacity:.25; }}
+.barr.oculta {{ display:none; }}
+.barr-head {{ color:var(--mut); font-size:12px; height:22px; }}
+.barr-head .ph {{ grid-column:4; text-align:center; }}
+.barr-head .nh {{ grid-column:5; text-align:right; }}
+.barr.mas {{ color:var(--mut); font-size:13px; font-style:italic; cursor:default; }}
 .sw {{ width:12px; height:12px; border-radius:3px; }}
-.et {{ font-size:16px; }} .nid {{ color:var(--mut); font-size:13px; }}
-.fr {{ color:var(--mut); font-size:13px; }}
-.track {{ height:7px; background:var(--sup2); border-radius:4px; margin-top:4px; }}
+.et {{ font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+.nid {{ color:var(--mut); font-size:12px; }}
+.fr {{ color:var(--mut); font-size:12px; }}
+.track {{ height:7px; background:var(--sup2); border-radius:4px; overflow:hidden; }}
 .fill {{ height:100%; border-radius:4px; }}
-.post {{ display:flex; height:12px; border-radius:6px; overflow:hidden; background:var(--sup2); position:relative; }}
-.post .ap {{ background:var(--apoya); margin-left:auto; }} .post .re {{ background:var(--rechaza); }}
+.post {{ height:12px; border-radius:6px; background:var(--sup2); position:relative; }}
+.post .ap {{ position:absolute; right:50%; top:0; bottom:0; background:var(--apoya); border-radius:6px 0 0 6px; }}
+.post .re {{ position:absolute; left:50%; top:0; bottom:0; background:var(--rechaza); border-radius:0 6px 6px 0; }}
+.post .mid {{ position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--borde); }}
 .num {{ text-align:right; font-variant-numeric:tabular-nums; color:var(--sec); }}
-.badge {{ background:#3a2a12; color:#f5c46a; border-radius:6px; padding:1px 7px; font-size:11px; }}
+.badge {{ background:#3a2a12; color:#f5c46a; border:1px solid #6a4d1e; border-radius:6px;
+  padding:1px 7px; font-size:11px; font-weight:600; }}
 .pie {{ color:var(--mut); font-size:13px; margin-top:8px; }}
 .graf {{ width:100%; height:calc(100% - 70px); }}
 .cols {{ display:grid; grid-template-columns:1fr 380px; gap:14px; height:calc(100% - 46px); }}
@@ -367,7 +427,7 @@ nav {{ display:flex; gap:8px; padding:4px 20px 10px; }}
 <main>
 <section class="paso" id="p1"><h2 class="pt">{_esc(_frase1(d))}</h2><div class="pc">
 <div class="kpis">{kpis_h}</div>
-<div class="barras">{''.join(filas_p1)}</div>
+<div class="barras" id="barras1"><div class="barr-head"><span></span><span></span><span></span><span class="ph">◀ apoya · rechaza ▶</span><span class="nh">comentarios</span></div>{''.join(filas_p1)}<div class="barr mas" id="masrow" hidden></div></div>
 <p class="pie">Los bandos se separan bien; decidir cuál apoya falla en algunas narrativas (macro-F1 0,65). · ruido: {100 * d['ruido']:.0f}% de los comentarios.</p>
 </div></section>
 <section class="paso" id="p2" hidden><h2 class="pt" id="t2"></h2><div class="pc"><div id="g2" class="graf"></div>
@@ -395,8 +455,28 @@ const base = () => ({{ paper_bgcolor:'rgba(0,0,0,0)', plot_bgcolor:'rgba(0,0,0,0
   xaxis:{{ gridcolor:css('--borde'), zeroline:false }},
   yaxis:{{ gridcolor:css('--borde'), zeroline:false, rangemode:'tozero' }} }});
 const colorDe = i => i >= 0 ? css('--c' + (i % {len(PALETA)} + 1)) : css('--otras');
+const fmtN = (x, dec = 0) => Number(x).toLocaleString('es-AR', {{ maximumFractionDigits:dec }});
 let sel = {{ tipo:null, id:null }};
 const filaDe = id => D.filas.find(f => f.id === id);
+
+function compactarP1() {{
+  const cont = $('#barras1'), mas = $('#masrow');
+  if (!cont) return;
+  const rows = [...cont.querySelectorAll('.barr:not(.mas)')];
+  rows.forEach(r => r.classList.remove('oculta'));
+  mas.hidden = true;
+  const ocultas = [];
+  // primero oculta las no emergentes desde el fondo; emergentes siempre visibles si entran
+  for (let i = rows.length - 1; i >= 0 && cont.scrollHeight > cont.clientHeight; i--)
+    if (rows[i].dataset.emerg !== '1') {{ rows[i].classList.add('oculta'); ocultas.push(rows[i]); }}
+  for (let i = rows.length - 1; i >= 0 && cont.scrollHeight > cont.clientHeight; i--)
+    if (!rows[i].classList.contains('oculta')) {{ rows[i].classList.add('oculta'); ocultas.push(rows[i]); }}
+  if (ocultas.length) {{
+    mas.hidden = false;
+    const ncom = ocultas.reduce((a, r) => a + Number(r.dataset.n), 0);
+    mas.textContent = '+' + ocultas.length + ' narrativas más chicas (' + fmtN(ncom) + ' comentarios)';
+  }}
+}}
 
 function irPaso(n, sub) {{
   location.hash = sub ? n + '/' + sub : String(n);
@@ -409,6 +489,7 @@ function aplicarHash() {{
   if (m[1]) {{ sel = m[1].startsWith('n') ? {{ tipo:'nar', id:m[1] }} : {{ tipo:'grupo', id:m[1] }}; }}
   dibujar(n);
   pintarSel();
+  compactarP1();
 }}
 function pintarSel() {{
   document.querySelectorAll('[data-nar]').forEach(e =>
@@ -420,11 +501,12 @@ const pasoActual = () => 1 + [...document.querySelectorAll('.paso')].findIndex(s
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => irPaso(+t.dataset.p));
 document.querySelectorAll('.gbtn').forEach(b => b.onclick = () => irPaso(4, b.dataset.g));
 $('#todo').onclick = verTodo;
-document.querySelectorAll('.barr').forEach(b => {{
+document.querySelectorAll('.barr:not(.mas)').forEach(b => {{
   b.onclick = () => {{ sel = sel.id === b.dataset.nar ? {{ tipo:null, id:null }} : {{ tipo:'nar', id:b.dataset.nar }}; pintarSel(); dibujar(pasoActual()); }};
   b.onmouseenter = e => {{
     const tt = $('#tt');
-    tt.innerHTML = '<ul>' + JSON.parse(b.dataset.ej).map(x => '<li>«' + x + '»</li>').join('') + '</ul>';
+    tt.innerHTML = '<div style="color:var(--mut)">' + (b.dataset.pos || '') + '</div><ul>' +
+      JSON.parse(b.dataset.ej).map(x => '<li>«' + x + '»</li>').join('') + '</ul>';
     tt.style.display = 'block';
   }};
   b.onmousemove = e => {{ const tt = $('#tt'); tt.style.left = (e.clientX + 14) + 'px'; tt.style.top = (e.clientY + 14) + 'px'; }};
@@ -439,6 +521,7 @@ document.addEventListener('keydown', e => {{
   if (e.key >= '1' && e.key <= '5') irPaso(+e.key);
 }});
 window.addEventListener('hashchange', aplicarHash);
+window.addEventListener('resize', compactarP1);
 
 function dibujar(n) {{
   if (n === 2) paso2();
@@ -449,10 +532,13 @@ function dibujar(n) {{
 }}
 
 function paso2() {{
-  const em = D.emerg[0];
-  if (em) $('#t2').textContent = '«' + filaDe(em).etiqueta + '» apareció el ' +
-    filaDe(em).origen_fecha + ' y llegó a ' + (D.max_dia[em] || 0) + ' comentarios por día';
-  else $('#t2').textContent = 'Sin narrativas emergentes en este set';
+  const foco = sel.tipo === 'nar' && D.serie_dia[sel.id] ? sel.id : D.emerg[0];
+  const maxDia = lab => Math.max(0, ...(D.serie_dia[lab] || [0]));
+  if (foco) {{
+    const f = filaDe(foco);
+    $('#t2').textContent = '«' + f.etiqueta + '» ' + (f.emergente ? 'apareció' : 'circula desde') +
+      ' el ' + f.origen_fecha + ' y llegó a ' + fmtN(maxDia(foco)) + ' comentarios por día';
+  }} else $('#t2').textContent = 'Sin narrativas emergentes en este set';
   const shown = sel.tipo === 'nar' && D.serie_dia[sel.id] ? [sel.id] : D.emerg;
   const enSerie = new Set(shown);
   const resto = D.x.map((_, k) => Object.entries(D.serie_dia).reduce((a, [lab, y]) =>
@@ -480,20 +566,25 @@ function paso3() {{
   const g = D.grafo;
   const ei = {{ x:[], y:[] }};
   for (const [a, b] of g.aristas) {{ ei.x.push(g.nodos[a].x, g.nodos[b].x, null); ei.y.push(g.nodos[a].y, g.nodos[b].y, null); }}
-  const colG = {{}};
-  D.tarjetas.forEach((t, i) => colG[t.id] = ['#e8e8e8', '#f5d76e', '#4dd8e8', '#f0a0c8', '#a8d878', '#c898f0'][i % 6]);
+  const COLG = ['#e8e8e8', '#f5d76e', '#4dd8e8', '#f0a0c8', '#a8d878', '#c898f0'];
+  const SYMS = ['circle', 'square', 'diamond', 'triangle-up', 'cross', 'star'];
+  const colG = {{}}, symG = {{}};
+  D.tarjetas.forEach((t, i) => {{ colG[t.id] = COLG[i % COLG.length]; symG[t.id] = SYMS[i % SYMS.length]; }});
   const porGrupo = {{}};
   g.nodos.forEach(nd => (porGrupo[nd.g || 'normal'] = porGrupo[nd.g || 'normal'] || []).push(nd));
   const tr = [{{ x:ei.x, y:ei.y, mode:'lines', type:'scatter', hoverinfo:'skip',
     line:{{ width:.5, color:'rgba(140,150,170,.28)' }}, showlegend:false }}];
-  for (const gid in porGrupo) {{
+  const ordenLey = ['normal', ...D.tarjetas.map(t => t.id)];
+  for (const gid of ordenLey) {{
     const ns = porGrupo[gid];
+    if (!ns) continue;
     tr.push({{ x:ns.map(n => n.x), y:ns.map(n => n.y), mode:'markers', type:'scatter',
-      name:gid === 'normal' ? 'cuentas' : gid,
+      name:gid === 'normal' ? 'muestra de cuentas no coordinadas' : gid,
       text:ns.map(n => n.c + (n.g ? ' · ' + n.g : '') + (n.tip ? '<br>«' + n.tip.replace(/</g,'&lt;') + '»' : '')),
       hovertemplate:'%{{text}}<extra></extra>',
-      marker:{{ size:gid === 'normal' ? 4 : 8, color:gid === 'normal' ? css('--otras') : colG[gid],
-        opacity:gid === 'normal' ? .45 : .95,
+      marker:{{ size:gid === 'normal' ? 4 : 9, color:gid === 'normal' ? css('--otras') : colG[gid],
+        symbol:gid === 'normal' ? 'circle' : symG[gid],
+        opacity:gid === 'normal' ? .4 : .95,
         line:gid === 'normal' ? undefined : {{ width:1, color:css('--bg') }} }} }});
   }}
   const L = base();
@@ -502,9 +593,12 @@ function paso3() {{
   L.margin = {{ l:8, r:8, t:8, b:36 }};
   Plotly.react('g3', tr, L, CFG);
   const cont = $('#cards3');
+  const et40 = e => e.etiqueta.length > 40 ? e.etiqueta.slice(0, 40) + '…' : e.etiqueta;
   cont.innerHTML = D.tarjetas.map(t =>
     '<div class="card" data-g="' + t.id + '"><b>' + t.id + '</b> · ' + t.n + ' cuentas · <b>' + t.nx + '</b>' +
-    '<div class="fr">' + t.empuja.map(e => e.id + ' ' + e.pct.toFixed(1).replace('.', ',') + '%').join(' · ') + '</div>' +
+    (t.empuja.length ? '<div class="fr">' + fmtN(t.empuja[0].pct, 1) + ' % en «' + et40(t.empuja[0]) + '»</div>' : '') +
+    (t.empuja.length > 1 ? '<div class="fr">' +
+      t.empuja.slice(1).map(e => e.id + ' ' + fmtN(e.pct, 1) + ' %').join(' · ') + '</div>' : '') +
     '<div class="track">' + t.empuja.map(e => '<div class="fill" style="width:' + Math.min(100, e.pct) +
       '%;background:' + colorDe(e.i) + '"></div>').join('') + '</div></div>').join('');
   cont.querySelectorAll('.card').forEach(c => c.onclick = () => {{ sel = {{ tipo:'grupo', id:c.dataset.g }}; irPaso(4, c.dataset.g); }});
@@ -515,13 +609,13 @@ function paso4(gid) {{
   if (!t) {{ $('#p4body').innerHTML = '<p class="pie">No se detectaron operaciones coordinadas.</p>'; return; }}
   document.querySelectorAll('.gbtn').forEach(b => b.classList.toggle('on', b.dataset.g === t.id));
   $('#t4').textContent = t.top_pct >= 50
-    ? 'El grupo ' + t.id + ' publica el ' + t.top_pct.toFixed(0) + ' % de sus comentarios en «' + t.top_et + '»'
+    ? 'El grupo ' + t.id + ' publica el ' + fmtN(t.top_pct, 1) + ' % de sus comentarios en «' + t.top_et + '»'
     : 'Evidencia del grupo ' + t.id;
   $('#p4body').innerHTML =
     '<div class="nums"><div><div class="v">' + t.nx + '</div><div class="k">co-actúan vs azar</div></div>' +
-    '<div><div class="v">' + t.posts + '</div><div class="k">publicaciones compartidas</div></div>' +
-    '<div><div class="v">' + t.respuestas + '</div><div class="k">respuestas mutuas</div></div>' +
-    '<div><div class="v">' + t.n_tags + '</div><div class="k">hashtags raros' +
+    '<div><div class="v">' + fmtN(t.posts) + '</div><div class="k">publicaciones compartidas</div></div>' +
+    '<div><div class="v">' + fmtN(t.respuestas) + '</div><div class="k">respuestas mutuas</div></div>' +
+    '<div><div class="v">' + fmtN(t.n_tags) + '</div><div class="k">hashtags raros' +
     (t.tags.length ? ': ' + t.tags.slice(0, 3).join(' ') : '') + '</div></div></div>' +
     '<div class="cols" style="grid-template-columns:1fr 1fr;height:auto">' +
     '<div><div class="fr">% de comentarios por hora: ' + t.id + ' vs no coordinadas</div><div id="h4" class="mini"></div></div>' +
@@ -535,8 +629,9 @@ function paso4(gid) {{
     type:'heatmap', showscale:true, colorscale:'Viridis',
     colorbar:{{ thickness:8, tickfont:{{ size:9 }}, title:{{ text:'% com.', font:{{ size:9 }} }} }} }}], Lh, CFG);
   const L4 = base(); L4.margin = {{ l:10, r:10, t:4, b:30 }};
-  L4.xaxis.title = {{ text:'minutos desde el primero', font:{{ size:10 }} }};
-  L4.yaxis = {{ type:'category', showticklabels:false, ticks:'', title:{{ text:'cuenta', font:{{ size:10 }} }} }};
+  L4.xaxis = {{ title:{{ text:'minutos desde el primero', font:{{ size:10 }} }},
+    gridcolor:css('--borde'), zeroline:false }};
+  L4.yaxis = {{ type:'category', showticklabels:false, showgrid:false, ticks:'' }};
   Plotly.react('g4', [{{ x:t.post.pts.map(p => p.m), y:t.post.pts.map(p => p.c), mode:'markers',
     type:'scatter', marker:{{ size:7, color:css('--apoya') }},
     hovertemplate:'%{{y}} · +%{{x}} min<extra></extra>' }}], L4, CFG);
