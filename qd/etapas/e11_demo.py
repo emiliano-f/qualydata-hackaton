@@ -372,7 +372,9 @@ nav {{ display:flex; gap:8px; padding:4px 20px 10px; }}
 </div></section>
 <section class="paso" id="p2" hidden><h2 class="pt" id="t2"></h2><div class="pc"><div id="g2" class="graf"></div>
 <p class="pie">La fecha de origen es una estimación.</p></div></section>
-<section class="paso" id="p3" hidden><h2 class="pt">Empujan</h2><div class="pc"><p class="pie">próximamente</p></div></section>
+<section class="paso" id="p3" hidden><h2 class="pt">{_esc(_plural(d['n_grupos'], 'enjambre de cuentas actúa', 'enjambres de cuentas actúan'))} juntos mucho más que lo esperable por azar</h2>
+<div class="pc cols"><div id="g3" class="graf" style="height:100%"></div><div class="cards" id="cards3"></div></div>
+<p class="pie">Coordinación anómala detectada: una alerta para un analista, no prueba de manipulación. × = cohesión observada / cohesión con cuentas al azar.</p></section>
 <section class="paso" id="p4" hidden><h2 class="pt" id="t4"></h2><div class="pc">
 <div class="gbts">{grupos_btn}</div><div id="p4body"></div>
 <p class="pie">Coordinación anómala detectada: una alerta para un analista, no prueba de manipulación.</p></div></section>
@@ -437,8 +439,10 @@ window.addEventListener('hashchange', aplicarHash);
 
 function dibujar(n) {{
   if (n === 2) paso2();
-  if (n === 4) paso4(sel.tipo === 'grupo' ? sel.id : (D.tarjetas[0] || {{}}).id);
-  /* los pasos 3 y 5 se agregan en commits siguientes */
+  if (n === 3) paso3();
+  if (n === 4) paso4(sel.tipo === 'grupo' ? sel.id :
+    ((D.tarjetas.reduce((a, b) => (b.nx_v > ((a || {{}}).nx_v || 0) ? b : a), null) || {{}}).id));
+  /* el paso 5 se agrega en el commit siguiente */
 }}
 
 function paso2() {{
@@ -467,6 +471,40 @@ function paso2() {{
     text:'origen ' + lab, showarrow:false, bgcolor:css('--bg'), borderpad:2,
     font:{{ size:11, color:css('--sec') }} }}));
   Plotly.react('g2', tr, L, CFG);
+}}
+
+function paso3() {{
+  const g = D.grafo;
+  const ei = {{ x:[], y:[] }};
+  for (const [a, b] of g.aristas) {{ ei.x.push(g.nodos[a].x, g.nodos[b].x, null); ei.y.push(g.nodos[a].y, g.nodos[b].y, null); }}
+  const colG = {{}};
+  D.tarjetas.forEach((t, i) => colG[t.id] = ['#e8e8e8', '#f5d76e', '#4dd8e8', '#f0a0c8', '#a8d878', '#c898f0'][i % 6]);
+  const porGrupo = {{}};
+  g.nodos.forEach(nd => (porGrupo[nd.g || 'normal'] = porGrupo[nd.g || 'normal'] || []).push(nd));
+  const tr = [{{ x:ei.x, y:ei.y, mode:'lines', type:'scatter', hoverinfo:'skip',
+    line:{{ width:.5, color:'rgba(140,150,170,.28)' }}, showlegend:false }}];
+  for (const gid in porGrupo) {{
+    const ns = porGrupo[gid];
+    tr.push({{ x:ns.map(n => n.x), y:ns.map(n => n.y), mode:'markers', type:'scatter',
+      name:gid === 'normal' ? 'cuentas' : gid,
+      text:ns.map(n => n.c + (n.g ? ' · ' + n.g : '') + (n.tip ? '<br>«' + n.tip.replace(/</g,'&lt;') + '»' : '')),
+      hovertemplate:'%{{text}}<extra></extra>',
+      marker:{{ size:gid === 'normal' ? 4 : 8, color:gid === 'normal' ? css('--otras') : colG[gid],
+        opacity:gid === 'normal' ? .45 : .95,
+        line:gid === 'normal' ? undefined : {{ width:1, color:css('--bg') }} }} }});
+  }}
+  const L = base();
+  L.xaxis = {{ visible:false }}; L.yaxis = {{ visible:false }};
+  L.showlegend = true; L.legend = {{ orientation:'h', y:-0.05 }};
+  L.margin = {{ l:8, r:8, t:8, b:36 }};
+  Plotly.react('g3', tr, L, CFG);
+  const cont = $('#cards3');
+  cont.innerHTML = D.tarjetas.map(t =>
+    '<div class="card" data-g="' + t.id + '"><b>' + t.id + '</b> · ' + t.n + ' cuentas · <b>' + t.nx + '</b>' +
+    '<div class="fr">' + t.empuja.map(e => e.id + ' ' + e.pct.toFixed(1).replace('.', ',') + '%').join(' · ') + '</div>' +
+    '<div class="track">' + t.empuja.map(e => '<div class="fill" style="width:' + Math.min(100, e.pct) +
+      '%;background:' + colorDe(e.i) + '"></div>').join('') + '</div></div>').join('');
+  cont.querySelectorAll('.card').forEach(c => c.onclick = () => {{ sel = {{ tipo:'grupo', id:c.dataset.g }}; irPaso(4, c.dataset.g); }});
 }}
 
 function paso4(gid) {{
