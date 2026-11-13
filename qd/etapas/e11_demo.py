@@ -498,12 +498,15 @@ main {{ flex:1; min-height:0; }}
 .gbtn {{ background:var(--sup); color:var(--sec); border:1px solid var(--borde);
   border-radius:8px; padding:6px 12px; font:500 14px var(--mono); cursor:pointer; }}
 .gbtn.on {{ color:var(--txt); border-color:var(--apoya); background:var(--sup2); }}
-#p4body {{ flex:1; min-height:0; overflow:hidden; }}
+#p4body {{ flex:1; min-height:0; overflow:hidden; display:flex; flex-direction:column; }}
+#p4body .cols {{ flex:1; min-height:120px; }}
+.mini {{ width:100%; height:calc(100% - 26px); min-height:110px; }}
+.mini2 {{ width:100%; height:calc(100% - 26px); min-height:110px; }}
 .fl {{ font:600 14px var(--mono); color:var(--mut); text-transform:uppercase;
   letter-spacing:.05em; margin:8px 0 3px; }}
 .coms {{ border-left:3px solid var(--amb-bo); padding-left:12px; }}
 .coms .cq {{ font:italic 16px/1.3 var(--serif); color:var(--sec); margin:2px 0; }}
-.mini {{ width:100%; height:130px; }} .mini2 {{ width:100%; height:150px; }}
+.coms-wrap {{ flex:none; }}
 #tt {{ position:fixed; display:none; max-width:420px; background:var(--sup2);
   border:1px solid var(--borde); border-radius:8px; padding:8px 12px; font-size:14px;
   color:var(--sec); pointer-events:none; z-index:9; }}
@@ -645,9 +648,14 @@ function paso2() {{
     fillcolor:colorDe(filaDe(lab).i) }}));
   tr.push({{ x:D.x, y:resto, name:'resto', type:'scatter', mode:'lines', stackgroup:'uno',
     line:{{ width:1, color:css('--bg') }}, fillcolor:css('--otras'), opacity:.55 }});
+  const fISO = iso => +iso.slice(8, 10) + '-' + MESES[+iso.slice(5, 7) - 1];
   const L = base();
   L.yaxis.title = {{ text:'comentarios por día' }};
   L.xaxis.rangeslider = {{ thickness:.08 }};
+  const pasoTick = Math.max(1, Math.round(D.x.length / 7));
+  L.xaxis.tickmode = 'array';
+  L.xaxis.tickvals = D.x.filter((_, i) => i % pasoTick === 0 || i === D.x.length - 1);
+  L.xaxis.ticktext = L.xaxis.tickvals.map(fISO);
   L.showlegend = false;   // la leyenda vive en la barra lateral (tarjetas por emergente)
   L.shapes = shown.filter(l => D.origenes[l]).map(lab => ({{ type:'line',
     x0:D.origenes[lab].slice(0, 10), x1:D.origenes[lab].slice(0, 10), yref:'paper', y0:0, y1:1,
@@ -658,7 +666,6 @@ function paso2() {{
     font:{{ size:14, family:"'JetBrains Mono',monospace", color:css('--sec') }} }}));
   Plotly.react('g2', tr, L, CFG);
   // barra lateral: una tarjeta por emergente (origen, pico con fecha, total)
-  const fISO = iso => +iso.slice(8, 10) + '-' + MESES[+iso.slice(5, 7) - 1];
   const side = $('#side2');
   if (side) {{
     side.innerHTML = shown.map(lab => {{
@@ -749,11 +756,11 @@ function paso4(gid) {{
      [fmtN(t.n_tags), 'hashtags raros' + (t.tags.length ? ': ' + t.tags.slice(0, 3).join(' ') : '')]]
     .map(x => '<div class="kpi"><div class="v">' + x[0] + '</div><div class="k">' + x[1] + '</div></div>').join('');
   $('#p4body').innerHTML =
-    '<div class="cols" style="grid-template-columns:1fr 1fr;height:auto">' +
+    '<div class="cols" style="grid-template-columns:1fr 1fr">' +
     '<div><div class="fl">% de comentarios por hora: ' + t.id + ' vs no coordinadas</div><div id="h4" class="mini"></div></div>' +
     '<div><div class="fl">«' + (t.post.titular || '').replace(/</g,'&lt;') + '» — un post, minuto a minuto</div><div id="g4" class="mini2"></div></div></div>' +
-    '<div class="fl">comentarios del grupo</div><div class="coms">' +
-    t.ej.slice(0, 3).map(x => '<div class="cq">«' + x.replace(/</g,'&lt;') + '»</div>').join('') + '</div>';
+    '<div class="coms-wrap"><div class="fl">comentarios del grupo</div><div class="coms">' +
+    t.ej.slice(0, 3).map(x => '<div class="cq">«' + x.replace(/</g,'&lt;') + '»</div>').join('') + '</div></div>';
   const Lh = base(); Lh.margin = {{ l:70, r:60, t:4, b:52 }};
   Lh.xaxis = {{ tickmode:'array', tickvals:[0,3,6,9,12,15,18,21], tickfont:{{ size:14 }}, gridcolor:css('--borde'),
     title:{{ text:'hora local (−03:00)', font:{{ size:14 }}, standoff:28 }} }};
