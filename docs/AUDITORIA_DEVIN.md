@@ -198,3 +198,40 @@ mirar en los dos `pipeline.log` el motor de e02 y los textos "por calcular" de e
 frío y leer del caché da los mismos vectores. Si las corridas usaron cachés distintos (otra máquina o `cache/emb`
 borrado entre corridas) o una cayó a TF-IDF, la diferencia viene de ahí. Después, comparar el `e08: ... cuentas
 coordinadas en N grupos` y el número de narrativas de e04 para ubicar la etapa.
+
+## 8. Fusión de grupos coordinados (resultado negativo, `coord.fusion: false`)
+
+**Hipótesis.** e08 a veces parte una misma campaña en varios grupos (p. ej., una que rota cuentas por turnos y
+copia la misma plantilla). Se agregó una fusión opcional después del filtro de cohesión
+(`qd/etapas/e08_coord.py`, `pares_fusion`, `cohesion_cruzada`, `fusionar_grupos`), apagada por defecto.
+
+**Umbrales fijados antes de medir** (`config.yaml`, `coord.fusion*`), sin barrido:
+- (a), común a todas: los dos grupos tienen la misma narrativa principal y cada uno tiene ahí ≥ 80 % de sus comentarios.
+- V1: la co-acción cruzada (fracción de eventos de A∪B con un evento del otro grupo en la misma publicación a
+  ≤ `delta_s`) menos la del nulo `permuta` (mismas réplicas) es ≥ `cohesion_min` (0,2).
+- V3: en ambos sentidos, una fracción f ≥ 0,30 de los comentarios del grupo en esa narrativa tiene un casi idéntico
+  en el otro (mismo `h_esq` con ≥ 6 tokens, o coseno e5 ≥ 0,95), y f ≥ 2× la misma fracción contra una muestra
+  del mismo tamaño de comentarios de cuentas no coordinadas de esa narrativa (3 muestras, semilla `coord.semilla`).
+- V1∪V3 = cualquiera de las dos. V2 = solo (a), control.
+- La fusión es transitiva (union-find) y el re-etiquetado es determinista (tamaño desc, menor `cuenta_id`).
+
+**Resultado** (práctica y p10, los únicos sets con verdad):
+
+| set | variante | total /55 | F1 cuentas | agrupación por operación | fusiones |
+|---|---|---|---|---|---|
+| práctica | sin fusión | 51,92 | 0,9823 | 0,9654 | 0 |
+| práctica | V1 / V3 / V1∪V3 / V2 | 51,92 | 0,9823 | 0,9654 | 0 |
+| p10 | sin fusión | 47,57 | 0,8276 | 0,7405 | 0 |
+| p10 | V1 / V3 / V1∪V3 / V2 | 47,57 | 0,8276 | 0,7405 | 0 |
+
+En práctica y p10 la condición (a) no se cumple nunca: los grupos detectados reparten su actividad entre
+narrativas (narrativa principal con 12 %–86 % de sus comentarios) y ningún par comparte una narrativa con ≥ 80 %.
+Ninguna variante mejora la agrupación en p10, así que ninguna es candidata y `coord.fusion` queda en `false`.
+Con `false` el código nuevo no se ejecuta: `make score` da 51,92 y los 3 CSV son byte-idénticos.
+
+En el set final, solo como conteo (no se usó para decidir): cada variante haría 1 fusión. En esa corrida V3 usó
+solo `h_esq`, porque la copia de la base no traía `emb.npy`.
+
+**Para el pitch.** La partición de campañas que motivó la idea no se puede validar con la verdad disponible:
+en práctica y p10 la regla no encuentra pares y por eso no cambia nada. Dejarla apagada es la decisión que
+sostienen los datos con verdad.
